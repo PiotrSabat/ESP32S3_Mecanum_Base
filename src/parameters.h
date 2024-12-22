@@ -16,8 +16,8 @@
 
 // delay    Opóźnienia, które ustawiają jak często ma być włączony TASK freeRTOS
 static const int rate_1 = 50;    // ms
-static const int rate_2 = 25;     // ms
-static const int rate_3 = 35;     // ms
+static const int rate_2 = 25;    // ms
+static const int rate_3 = 35;    // ms
 
 
 
