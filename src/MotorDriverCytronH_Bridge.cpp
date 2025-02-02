@@ -24,13 +24,13 @@ MotorDriverCytronH_Bridge::MotorDriverCytronH_Bridge(uint8_t pin1, uint8_t pin2,
 void MotorDriverCytronH_Bridge::setSpeed(int speed)
 {
     //Make sure the speed is within the limit
-     if (speed > 255)
+     if (speed > 100)
       {
-            speed = 255;
+            speed = 100;
       }
-      else if (speed < -255)
+      else if (speed < -100)
       {
-            speed = -255;
+            speed = -100;
       }
 
       //Set speed and direction
