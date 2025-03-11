@@ -47,6 +47,11 @@ void MotorDriverCytronH_Bridge::setSpeed(int speed)
 
 }
 
+int MotorDriverCytronH_Bridge::getCurrentSpeed()
+{
+    return currentSpeed;
+}
+
 MotorDriverCytronH_Bridge::~MotorDriverCytronH_Bridge()
 {
 }

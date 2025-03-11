@@ -3,15 +3,20 @@
 #include <WiFi.h>
 #include "parameters.h"
 #include "MotorDriverCytronH_Bridge.h"
+#include "MecanumDrive.h"
 
 // Struktura danych z Pada
 Message_from_Pad myData_from_Pad;
 
-// Definicja silników
-MotorDriverCytronH_Bridge motorFL(LF_M1A, LF_M1B, 0, 1);
-MotorDriverCytronH_Bridge motorFR(FR_M2A, FR_M2B, 2, 3);
-MotorDriverCytronH_Bridge motorRL(LB_M2A, LB_M2B, 4, 5);
-MotorDriverCytronH_Bridge motorRR(BR_M1A, BR_M1B, 6, 7);
+
+// Inicjalizacja silników
+MotorDriverCytronH_Bridge frontLeft(FL_PIN1, FL_PIN2, FL_CHANNEL1, FL_CHANNEL2);
+MotorDriverCytronH_Bridge frontRight(FR_PIN1, FR_PIN2, FR_CHANNEL1, FR_CHANNEL2);
+MotorDriverCytronH_Bridge rearLeft(RL_PIN1, RL_PIN2, RL_CHANNEL1, RL_CHANNEL2);
+MotorDriverCytronH_Bridge rearRight(RR_PIN1, RR_PIN2, RR_CHANNEL1, RR_CHANNEL2);
+
+MecanumDrive drive(&frontLeft, &frontRight, &rearLeft, &rearRight);
+
 
 // Peer info
 esp_now_peer_info_t peerInfo;
@@ -38,27 +43,41 @@ void espNowTask(void *parameter) {
 // ===== TASK 2: STEROWANIE SILNIKAMI =====
 void motorControlTask(void *parameter) {
     while (1) {
-        // Mapowanie wartości joysticka na zakres PWM (-100 do 100)
-        int speedFL = myData_from_Pad.L_Joystick_y_message + myData_from_Pad.L_Joystick_x_message;
-        int speedFR = myData_from_Pad.L_Joystick_y_message - myData_from_Pad.L_Joystick_x_message;
-        int speedRL = myData_from_Pad.L_Joystick_y_message + myData_from_Pad.L_Joystick_x_message;
-        int speedRR = myData_from_Pad.L_Joystick_y_message - myData_from_Pad.L_Joystick_x_message;
+        int x = myData_from_Pad.L_Joystick_x_message;
+        int y = myData_from_Pad.L_Joystick_y_message;
+        int yaw = myData_from_Pad.R_Joystick_x_message;
 
-        // Ograniczenie wartości do przedziału -255 do 255
-        speedFL = constrain(speedFL, -255, 255);
-        speedFR = constrain(speedFR, -255, 255);
-        speedRL = constrain(speedRL, -255, 255);
-        speedRR = constrain(speedRR, -255, 255);
+        // Martwa strefa
+        if (abs(x) < DEAD_ZONE) x = 0;
+        if (abs(y) < DEAD_ZONE) y = 0;
+        if (abs(yaw) < DEAD_ZONE) yaw = 0;
 
-        // Ustawienie prędkości silników
-        motorFL.setSpeed(speedFL);
-        motorFR.setSpeed(speedFR);
-        motorRL.setSpeed(speedRL);
-        motorRR.setSpeed(speedRR);
+        // Przekształcenie wartości joysticków na ruch mecanum
+        drive.move(x, y, yaw);
 
-        vTaskDelay(50 / portTICK_PERIOD_MS); // Odświeżanie co 50ms (20Hz)
+        // Wysłanie danych zwrotnych
+        Message_from_Platform_Mecanum feedback;
+        feedback.seqNum++;
+        feedback.frontLeftSpeed = frontLeft.getCurrentSpeed();
+        feedback.frontRightSpeed = frontRight.getCurrentSpeed();
+        feedback.rearLeftSpeed = rearLeft.getCurrentSpeed();
+        feedback.rearRightSpeed = rearRight.getCurrentSpeed();
+
+        feedback.pitch = 0.0; // Możesz podpiąć odczyt z IMU
+        feedback.roll = 0.0;
+        feedback.yaw = yaw;
+
+        feedback.batteryVoltage = analogRead(34) * (3.3 / 4095.0) * 2.0;
+
+        esp_err_t result = esp_now_send(macPadXiao, (uint8_t *) &feedback, sizeof(feedback));
+        if (result != ESP_OK) {
+            Serial.println("❌ Błąd wysyłania feedbacku");
+        }
+
+        vTaskDelay(50 / portTICK_PERIOD_MS); // Odświeżanie co 50 ms (20Hz)
     }
 }
+
 
 // ===== TASK 3: MONITOROWANIE BATERII (opcjonalnie) =====
 void batteryMonitorTask(void *parameter) {
@@ -80,7 +99,7 @@ void setup() {
     }
     esp_now_register_recv_cb(OnDataRecv);
 
-    memcpy(peerInfo.peer_addr, macPadFireBeetle, 6);
+    memcpy(peerInfo.peer_addr, macPadXiao, 6);
     peerInfo.channel = 0;
     peerInfo.encrypt = false;
     if (esp_now_add_peer(&peerInfo) != ESP_OK) {
