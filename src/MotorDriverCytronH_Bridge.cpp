@@ -15,8 +15,8 @@ MotorDriverCytronH_Bridge::MotorDriverCytronH_Bridge(uint8_t pin1, uint8_t pin2,
     ledcAttachPin(_pin1, channel1);
     ledcAttachPin(_pin2, channel2);
 
-    ledcSetup(channel1, 20000, 8);
-    ledcSetup(channel2, 20000, 8);
+    ledcSetup(channel1, 20000, 9);
+    ledcSetup(channel2, 20000, 9);
 
 
 }
@@ -24,13 +24,13 @@ MotorDriverCytronH_Bridge::MotorDriverCytronH_Bridge(uint8_t pin1, uint8_t pin2,
 void MotorDriverCytronH_Bridge::setSpeed(int speed)
 {
     //Make sure the speed is within the limit
-     if (speed > 255)
+     if (speed > 511)
       {
-            speed = 255;
+            speed = 511;
       }
-      else if (speed < -255)
+      else if (speed < -512)
       {                 
-            speed = -255;
+            speed = -512;
       }
 
       //Set speed and direction

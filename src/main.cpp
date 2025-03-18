@@ -8,6 +8,17 @@
 // Struktura danych z Pada
 Message_from_Pad myData_from_Pad;
 
+//lokalna strukutra danych do sterowania kołami
+typedef struct {
+    int x;
+    int y;
+    int yaw;
+} MovementData;
+
+// globalna zmienna i mutex do ochrony struktury danych
+volatile MovementData movementData;
+SemaphoreHandle_t movementMutex;
+
 
 // Inicjalizacja silników
 MotorDriverCytronH_Bridge frontLeft(FL_PIN1, FL_PIN2, FL_CHANNEL1, FL_CHANNEL2);
@@ -92,6 +103,7 @@ void batteryMonitorTask(void *parameter) {
 void setup() {
     Serial.begin(115200);
     WiFi.mode(WIFI_STA);
+    WiFi.disconnect();
 
     if (esp_now_init() != ESP_OK) {
         Serial.println("Error initializing ESP-NOW");
@@ -105,6 +117,13 @@ void setup() {
     if (esp_now_add_peer(&peerInfo) != ESP_OK) {
         Serial.println("Failed to add peer");
         return;
+    }
+
+    //Utworzenie mutexu do ochrony globalnej struktury danych
+    movementMutex = xSemaphoreCreateMutex();
+    if (movementMutex == NULL) {
+        Serial.println("❌ Błąd tworzenia mutexu!");
+        while (1) delay(100);
     }
 
     // Tworzenie tasków FreeRTOS
