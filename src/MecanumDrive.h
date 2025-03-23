@@ -4,7 +4,7 @@
 #include "MotorDriverCytronH_Bridge.h"
 
 #define DEAD_ZONE 15
-#define MAX_SPEED 255
+#define MAX_SPEED 512
 
 class MecanumDrive {
 public:
