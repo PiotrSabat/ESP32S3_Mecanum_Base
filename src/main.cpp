@@ -4,6 +4,7 @@
 #include "parameters.h"
 #include "MotorDriverCytronH_Bridge.h"
 #include "MecanumDrive.h"
+#include <ESP32Encoder.h>
 
 // Struktura danych z Pada
 Message_from_Pad myData_from_Pad;
@@ -21,12 +22,18 @@ SemaphoreHandle_t movementMutex;
 
 
 // Inicjalizacja silników
+MotorDriverCytronH_Bridge rearRight(RR_PIN2, RR_PIN1, RR_CHANNEL2, RR_CHANNEL1);
+MotorDriverCytronH_Bridge frontRight(FR_PIN2, FR_PIN1, FR_CHANNEL2, FR_CHANNEL1);
 MotorDriverCytronH_Bridge frontLeft(FL_PIN1, FL_PIN2, FL_CHANNEL1, FL_CHANNEL2);
-MotorDriverCytronH_Bridge frontRight(FR_PIN1, FR_PIN2, FR_CHANNEL1, FR_CHANNEL2);
 MotorDriverCytronH_Bridge rearLeft(RL_PIN1, RL_PIN2, RL_CHANNEL1, RL_CHANNEL2);
-MotorDriverCytronH_Bridge rearRight(RR_PIN1, RR_PIN2, RR_CHANNEL1, RR_CHANNEL2);
+
 
 MecanumDrive drive(&frontLeft, &frontRight, &rearLeft, &rearRight);
+
+ESP32Encoder frontLeftEncoder;
+ESP32Encoder frontRightEncoder;
+ESP32Encoder rearLeftEncoder;
+ESP32Encoder rearRightEncoder;
 
 
 // Peer info
@@ -35,7 +42,8 @@ esp_now_peer_info_t peerInfo;
 // FreeRTOS Task Handlers
 TaskHandle_t espNowTaskHandle;
 TaskHandle_t motorControlTaskHandle;
-TaskHandle_t batteryMonitorTaskHandle;
+//TaskHandle_t batteryMonitorTaskHandle;
+TaskHandle_t encoderTaskHandle;
 
 // ===== CALLBACK ODBIORU ESP-NOW =====
 void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
@@ -78,7 +86,7 @@ void motorControlTask(void *parameter) {
         feedback.roll = 0.0;
         feedback.yaw = yaw;
 
-        feedback.batteryVoltage = analogRead(34) * (3.3 / 4095.0) * 2.0;
+        //feedback.batteryVoltage = analogRead(34) * (3.3 / 4095.0) * 2.0;
 
         esp_err_t result = esp_now_send(macPadXiao, (uint8_t *) &feedback, sizeof(feedback));
         if (result != ESP_OK) {
@@ -90,7 +98,7 @@ void motorControlTask(void *parameter) {
 }
 
 
-// ===== TASK 3: MONITOROWANIE BATERII (opcjonalnie) =====
+/*/ ===== TASK 3: MONITOROWANIE BATERII (opcjonalnie) =====
 void batteryMonitorTask(void *parameter) {
     while (1) {
         float batteryVoltage = analogRead(34) * (3.3 / 4095.0) * 2.0; // Przykładowe odczytanie napięcia
@@ -98,9 +106,33 @@ void batteryMonitorTask(void *parameter) {
         vTaskDelay(1000 / portTICK_PERIOD_MS); // Odświeżanie co 1s
     }
 }
+*/
+
+// ===== TASK 4: ODCZYTYWANIE ENKODERÓW =====
+void encoderTask(void *parameter) {
+    while (1) {
+        int64_t frontLeftCount = frontLeftEncoder.getCount();
+        int64_t frontRightCount = frontRightEncoder.getCount();
+        int64_t rearLeftCount = rearLeftEncoder.getCount();
+        int64_t rearRightCount = rearRightEncoder.getCount();
+
+        Serial.print("Front Left: ");
+        Serial.print(frontLeftCount);
+        Serial.print(", Front Right: ");    
+        Serial.print(frontRightCount);
+        Serial.print(", Rear Left: ");
+        Serial.print(rearLeftCount);
+        Serial.print(", Rear Right: ");
+        Serial.println(rearRightCount);
+
+        vTaskDelay(100 / portTICK_PERIOD_MS); // Odświeżanie co 0,1s
+    }
+
+}
 
 // ===== SETUP =====
 void setup() {
+       
     Serial.begin(115200);
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
@@ -126,10 +158,22 @@ void setup() {
         while (1) delay(100);
     }
 
+    //inicjalizacja enkoderów
+    //ESP32Encoder::useInternalWeakPullResistors=UP;
+    frontLeftEncoder.attachSingleEdge(FL_ENCODER_A, FL_ENCODER_B);
+    frontRightEncoder.attachSingleEdge(FR_ENCODER_A, FR_ENCODER_B);
+    rearLeftEncoder.attachSingleEdge(RL_ENCODER_A, RL_ENCODER_B);
+    rearRightEncoder.attachSingleEdge(RR_ENCODER_A, RR_ENCODER_B);
+    frontLeftEncoder.clearCount();
+    frontRightEncoder.clearCount();
+    rearLeftEncoder.clearCount();
+    rearRightEncoder.clearCount();
+
     // Tworzenie tasków FreeRTOS
     xTaskCreatePinnedToCore(espNowTask, "ESPNowTask", 2048, NULL, 1, &espNowTaskHandle, 0);
     xTaskCreatePinnedToCore(motorControlTask, "MotorControlTask", 2048, NULL, 1, &motorControlTaskHandle, 1);
-    xTaskCreatePinnedToCore(batteryMonitorTask, "BatteryMonitorTask", 2048, NULL, 1, &batteryMonitorTaskHandle, 1);
+    //xTaskCreatePinnedToCore(batteryMonitorTask, "BatteryMonitorTask", 2048, NULL, 1, &batteryMonitorTaskHandle, 1);
+    xTaskCreatePinnedToCore(encoderTask, "EncoderTask", 2048, NULL, 1, &encoderTaskHandle, 1);
 
     Serial.println("✅ System gotowy!");
 }
