@@ -9,13 +9,15 @@ MotorDriverCytronH_Bridge::MotorDriverCytronH_Bridge(uint8_t pin1, uint8_t pin2,
 {
     pinMode(_pin1, OUTPUT);
     pinMode(_pin2, OUTPUT);
+    //delay(500);
 
     digitalWrite(_pin1, LOW);
     digitalWrite(_pin2, LOW);
-    delay(10);
+    //delay(50);
 
     ledcSetup(_channel1, 20000, 9);
     ledcSetup(_channel2, 20000, 9);
+    //delay(50);
     
 
     ledcAttachPin(_pin1, _channel1);

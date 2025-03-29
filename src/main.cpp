@@ -7,17 +7,17 @@
 #include <ESP32Encoder.h>
 #include "EncoderReader.h"
 
-// Struktura danych z Pada
+// Struktura danych z pada
 Message_from_Pad myData_from_Pad;
 
-//lokalna struktura danych do sterowania kołami
+// Lokalne dane do sterowania kołami
 typedef struct {
     int x;
     int y;
     int yaw;
 } MovementData;
 
-// globalna zmienna i mutex do ochrony struktury danych
+// Globalna zmienna i mutex do ochrony struktury danych
 volatile MovementData movementData;
 SemaphoreHandle_t movementMutex;
 
@@ -35,7 +35,7 @@ ESP32Encoder frontRightEncoder;
 ESP32Encoder rearLeftEncoder;
 ESP32Encoder rearRightEncoder;
 
-// *** Deklaracja globalnego obiektu EncoderReader ***
+// Deklaracja globalnego obiektu EncoderReader
 EncoderReader encoderReader(&frontLeftEncoder, &frontRightEncoder, &rearLeftEncoder, &rearRightEncoder);
 
 // Peer info
@@ -138,7 +138,7 @@ void setup() {
         while (1) delay(100);
     }
 
-    // Inicjalizacja enkoderów
+    // Inicjalizacja enkoderów – wywołanie attachSingleEdge oraz wyzerowanie liczników
     frontLeftEncoder.attachSingleEdge(FL_ENCODER_A, FL_ENCODER_B);
     frontRightEncoder.attachSingleEdge(FR_ENCODER_A, FR_ENCODER_B);
     rearLeftEncoder.attachSingleEdge(RL_ENCODER_A, RL_ENCODER_B);
@@ -147,6 +147,10 @@ void setup() {
     frontRightEncoder.clearCount();
     rearLeftEncoder.clearCount();
     rearRightEncoder.clearCount();
+
+    // Resetujemy wartości pomocnicze w obiekcie encoderReader,
+    // aby zsynchronizować je z aktualnymi odczytami enkoderów
+    encoderReader.resetEncoders();
 
     // Tworzenie tasków FreeRTOS
     xTaskCreatePinnedToCore(espNowTask, "ESPNowTask", 2048, NULL, 1, &espNowTaskHandle, 0);
@@ -157,5 +161,5 @@ void setup() {
 }
 
 void loop() {
-    // Pusta, wszystko działa w FreeRTOS
+    // Pusta – wszystko działa w FreeRTOS
 }
