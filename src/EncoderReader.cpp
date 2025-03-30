@@ -46,7 +46,7 @@ void EncoderReader::resetEncoders() {
     lastCountRL = 0;
     lastCountRR = 0;
     
-    Serial.println("EncoderReader::resetEncoders() wykonane.");
+   // Serial.println("EncoderReader::resetEncoders() wykonane.");
 }
 
 void EncoderReader::getRPMs(float& rpmFL, float& rpmFR, float& rpmRL, float& rpmRR) {

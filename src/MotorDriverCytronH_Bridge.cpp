@@ -9,7 +9,7 @@ MotorDriverCytronH_Bridge::MotorDriverCytronH_Bridge(uint8_t pin1, uint8_t pin2,
 {
     pinMode(_pin1, OUTPUT);
     pinMode(_pin2, OUTPUT);
-    delay(50);
+    delay(50); // Oczekiwanie na ustabilizowanie się pinów
 
     digitalWrite(_pin1, LOW);
     digitalWrite(_pin2, LOW);
@@ -26,11 +26,11 @@ MotorDriverCytronH_Bridge::MotorDriverCytronH_Bridge(uint8_t pin1, uint8_t pin2,
 
 void MotorDriverCytronH_Bridge::setSpeed(int speed)
 {
-    // Ograniczenie prędkości do zakresu [-512, 511]
+    // Ograniczenie prędkości do zakresu [-511, 511] – wartość większa/mniejsza jest przycięta do 9 bitów, inna wartość nie jest akceptowalna
     if (speed > 511) {
         speed = 511;
-    } else if (speed < -512) {
-        speed = -512;
+    } else if (speed < -511) {
+        speed = -511;
     }
 
     // Ustawienie kierunku i prędkości
@@ -41,13 +41,9 @@ void MotorDriverCytronH_Bridge::setSpeed(int speed)
         ledcWrite(_channel1, 0);
         ledcWrite(_channel2, -speed);
     }
-    currentSpeed = speed; // Aktualizacja zmiennej currentSpeed
 }
 
-int MotorDriverCytronH_Bridge::getCurrentSpeed()
-{
-    return currentSpeed;
-}
+
 
 MotorDriverCytronH_Bridge::~MotorDriverCytronH_Bridge()
 {

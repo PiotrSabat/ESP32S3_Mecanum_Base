@@ -36,6 +36,7 @@ void MecanumDrive::applyDeadZone(int& x, int& y, int& yaw) {
     if (abs(yaw) < DEAD_ZONE) yaw = 0;
 }
 
+//zabezpieczenie przed przekroczeniem maksymalnej prędkości, do usunięcia, jeśli PID działa poprawnie
 void MecanumDrive::normalizeMotorPower(int& fl, int& fr, int& rl, int& rr) {
     int maxPower = max(max(abs(fl), abs(fr)), max(abs(rl), abs(rr)));
     if (maxPower > MAX_SPEED) {

@@ -73,20 +73,6 @@ void motorControlTask(void *parameter) {
 
         drive.move(x, y, yaw);
 
-        Message_from_Platform_Mecanum feedback;
-        feedback.seqNum++;
-        feedback.frontLeftSpeed = frontLeft.getCurrentSpeed();
-        feedback.frontRightSpeed = frontRight.getCurrentSpeed();
-        feedback.rearLeftSpeed = rearLeft.getCurrentSpeed();
-        feedback.rearRightSpeed = rearRight.getCurrentSpeed();
-        feedback.pitch = 0.0;
-        feedback.roll = 0.0;
-        feedback.yaw = yaw;
-
-        esp_err_t result = esp_now_send(macPadXiao, (uint8_t*)&feedback, sizeof(feedback));
-        if (result != ESP_OK) {
-            Serial.println("❌ Błąd wysyłania feedbacku");
-        }
 
         vTaskDelay(50 / portTICK_PERIOD_MS);
     }
@@ -95,15 +81,46 @@ void motorControlTask(void *parameter) {
 // TASK 4: ODCZYTYWANIE ENKODERÓW
 void encoderTask(void *parameter) {
     while (1) {
-        EncoderData data = encoderReader->readEncoders();
-        Serial.print("Front Left: ");
-        Serial.print(data.frontLeft);
-        Serial.print(", Front Right: ");
-        Serial.print(data.frontRight);
-        Serial.print(", Rear Left: ");
-        Serial.print(data.rearLeft);
-        Serial.print(", Rear Right: ");
-        Serial.println(data.rearRight);
+        // Przykładowy fragment kodu wyświetlający dane z enkoderów oraz RPM
+
+// Najpierw czyszczenie ekranu (ANSI escape codes)
+Serial.write("\033[2J");  // Czyści cały ekran
+Serial.write("\033[H");   // Ustawia kursor w górnym lewym rogu
+
+// Pobieramy RPM z enkoderów
+float rpmFL, rpmFR, rpmRL, rpmRR;
+encoderReader->getRPMs(rpmFL, rpmFR, rpmRL, rpmRR);
+
+// Pobieramy surowe odczyty liczników
+EncoderData data = encoderReader->readEncoders();
+
+// Wypisanie nagłówków
+Serial.println("---------------------------------------------------------");
+Serial.println("       ENCODER COUNTS             RPM");
+Serial.println("---------------------------------------------------------");
+
+// Wypisanie liczników enkoderów
+Serial.print("FL: ");
+Serial.print(data.frontLeft);
+Serial.print("\t FR: ");
+Serial.print(data.frontRight);
+Serial.print("\t RL: ");
+Serial.print(data.rearLeft);
+Serial.print("\t RR: ");
+Serial.println(data.rearRight);
+
+// Wypisanie RPM (zaokrąglone do 1 miejsca po przecinku)
+Serial.print("RPM: ");
+Serial.print(rpmFL, 1);
+Serial.print("\t ");
+Serial.print(rpmFR, 1);
+Serial.print("\t ");
+Serial.print(rpmRL, 1);
+Serial.print("\t ");
+Serial.println(rpmRR, 1);
+
+
+
         vTaskDelay(100 / portTICK_PERIOD_MS);
     }
 }

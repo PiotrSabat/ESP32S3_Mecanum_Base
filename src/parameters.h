@@ -38,8 +38,11 @@
 #define RR_ENCODER_A 17
 #define RR_ENCODER_B 18
 
-//rozdzielczość enkoderów
-#define ENCODER_RESOLUTION 3600
+//rozdzielczość enkoderów 960 impulsów na obrót
+#define ENCODER_RESOLUTION 960
+
+//maksymalna prędkość silników RPM
+#define MAX_RPM 120
 
 
 // delay    Opóźnienia, które ustawiają jak często ma być włączony TASK freeRTOS
