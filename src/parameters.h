@@ -38,6 +38,9 @@
 #define RR_ENCODER_A 17
 #define RR_ENCODER_B 18
 
+//rozdzielczość enkoderów
+#define ENCODER_RESOLUTION 3600
+
 
 // delay    Opóźnienia, które ustawiają jak często ma być włączony TASK freeRTOS
 static const int rate_1 = 50;    // ms

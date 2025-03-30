@@ -1,19 +1,24 @@
 #include "EncoderReader.h"
 #include <Arduino.h>
 
-EncoderReader::EncoderReader(ESP32Encoder* fl, ESP32Encoder* fr, ESP32Encoder* rl, ESP32Encoder* rr)
-    : encoderFL(fl), encoderFR(fr), encoderRL(rl), encoderRR(rr)
+EncoderReader::EncoderReader(ESP32Encoder* fl, ESP32Encoder* fr, ESP32Encoder* rl, ESP32Encoder* rr, uint16_t encoderResolution)
+    : encoderFL(fl), encoderFR(fr), encoderRL(rl), encoderRR(rr), _encoderResolution(encoderResolution)
 {
-    // Inicjalizacja oddzielnych znaczników czasu i liczników
+    // Konstruktor nie wykonuje operacji sprzętowych – inicjalizację wykonamy w begin().
+}
+
+void EncoderReader::begin() {
     lastTimeFL = millis();
     lastTimeFR = millis();
     lastTimeRL = millis();
     lastTimeRR = millis();
-
+    
     lastCountFL = encoderFL->getCount();
     lastCountFR = encoderFR->getCount();
     lastCountRL = encoderRL->getCount();
     lastCountRR = encoderRR->getCount();
+    
+    //Serial.println("EncoderReader::begin() wykonane.");
 }
 
 EncoderData EncoderReader::readEncoders() {
@@ -40,26 +45,44 @@ void EncoderReader::resetEncoders() {
     lastCountFR = 0;
     lastCountRL = 0;
     lastCountRR = 0;
+    
+    Serial.println("EncoderReader::resetEncoders() wykonane.");
 }
 
-float EncoderReader::calculateRPM(ESP32Encoder* encoder, int64_t& lastCount, unsigned long& lastTime, uint16_t pulsesPerRevolution) {
+void EncoderReader::getRPMs(float& rpmFL, float& rpmFR, float& rpmRL, float& rpmRR) {
     unsigned long currentTime = millis();
-    int64_t currentCount = encoder->getCount();
-    unsigned long deltaTime = currentTime - lastTime;
-    int64_t deltaCount = currentCount - lastCount;
-
-    // Aktualizacja zmiennych pomocniczych dla tego enkodera
-    lastTime = currentTime;
-    lastCount = currentCount;
-
-    if (deltaTime == 0) return 0.0;
-    float rpm = (deltaCount * 60000.0) / (pulsesPerRevolution * deltaTime);
-    return rpm;
-}
-
-void EncoderReader::getRPMs(uint16_t pulsesPerRevolution, float& rpmFL, float& rpmFR, float& rpmRL, float& rpmRR) {
-    rpmFL = calculateRPM(encoderFL, lastCountFL, lastTimeFL, pulsesPerRevolution);
-    rpmFR = calculateRPM(encoderFR, lastCountFR, lastTimeFR, pulsesPerRevolution);
-    rpmRL = calculateRPM(encoderRL, lastCountRL, lastTimeRL, pulsesPerRevolution);
-    rpmRR = calculateRPM(encoderRR, lastCountRR, lastTimeRR, pulsesPerRevolution);
+    
+    // Jednorazowy odczyt dla każdego enkodera
+    int64_t currentCountFL = encoderFL->getCount();
+    int64_t currentCountFR = encoderFR->getCount();
+    int64_t currentCountRL = encoderRL->getCount();
+    int64_t currentCountRR = encoderRR->getCount();
+    
+    // Obliczenie różnic czasu i impulsów
+    unsigned long deltaTimeFL = currentTime - lastTimeFL;
+    unsigned long deltaTimeFR = currentTime - lastTimeFR;
+    unsigned long deltaTimeRL = currentTime - lastTimeRL;
+    unsigned long deltaTimeRR = currentTime - lastTimeRR;
+    
+    int64_t deltaCountFL = currentCountFL - lastCountFL;
+    int64_t deltaCountFR = currentCountFR - lastCountFR;
+    int64_t deltaCountRL = currentCountRL - lastCountRL;
+    int64_t deltaCountRR = currentCountRR - lastCountRR;
+    
+    // Obliczanie RPM – używamy _encoderResolution podanej w konstruktorze
+    rpmFL = (deltaTimeFL == 0) ? 0.0 : (deltaCountFL * 60000.0) / (_encoderResolution * deltaTimeFL);
+    rpmFR = (deltaTimeFR == 0) ? 0.0 : (deltaCountFR * 60000.0) / (_encoderResolution * deltaTimeFR);
+    rpmRL = (deltaTimeRL == 0) ? 0.0 : (deltaCountRL * 60000.0) / (_encoderResolution * deltaTimeRL);
+    rpmRR = (deltaTimeRR == 0) ? 0.0 : (deltaCountRR * 60000.0) / (_encoderResolution * deltaTimeRR);
+    
+    // Aktualizacja zmiennych pomocniczych
+    lastTimeFL = currentTime;
+    lastTimeFR = currentTime;
+    lastTimeRL = currentTime;
+    lastTimeRR = currentTime;
+    
+    lastCountFL = currentCountFL;
+    lastCountFR = currentCountFR;
+    lastCountRL = currentCountRL;
+    lastCountRR = currentCountRR;
 }

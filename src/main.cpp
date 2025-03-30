@@ -9,7 +9,7 @@
 
 // Struktura danych z pada
 Message_from_Pad myData_from_Pad;
-
+ 
 // Lokalne dane do sterowania kołami
 typedef struct {
     int x;
@@ -35,8 +35,8 @@ ESP32Encoder frontRightEncoder;
 ESP32Encoder rearLeftEncoder;
 ESP32Encoder rearRightEncoder;
 
-// Deklaracja globalnego obiektu EncoderReader
-EncoderReader encoderReader(&frontLeftEncoder, &frontRightEncoder, &rearLeftEncoder, &rearRightEncoder);
+// Deklaracja wskaźnika do obiektu EncoderReader – obiekt zostanie stworzony w setup()
+EncoderReader* encoderReader = nullptr;
 
 // Peer info
 esp_now_peer_info_t peerInfo;
@@ -46,28 +46,27 @@ TaskHandle_t espNowTaskHandle;
 TaskHandle_t motorControlTaskHandle;
 TaskHandle_t encoderTaskHandle;
 
-// ===== CALLBACK ODBIORU ESP-NOW =====
+// CALLBACK ODBIORU ESP-NOW
 void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
     if (len == sizeof(Message_from_Pad)) {
         memcpy(&myData_from_Pad, incomingData, sizeof(myData_from_Pad));
     }
 }
 
-// ===== TASK 1: ODBIERANIE DANYCH Z ESP-NOW =====
+// TASK 1: ODBIERANIE DANYCH Z ESP-NOW
 void espNowTask(void *parameter) {
     while (1) {
-        vTaskDelay(20 / portTICK_PERIOD_MS); // Odświeżanie co 20ms (50Hz)
+        vTaskDelay(20 / portTICK_PERIOD_MS);
     }
 }
 
-// ===== TASK 2: STEROWANIE SILNIKAMI =====
+// TASK 2: STEROWANIE SILNIKAMI
 void motorControlTask(void *parameter) {
     while (1) {
         int x = myData_from_Pad.L_Joystick_x_message;
         int y = myData_from_Pad.L_Joystick_y_message;
         int yaw = myData_from_Pad.R_Joystick_x_message;
 
-        // Martwa strefa
         if (abs(x) < DEAD_ZONE) x = 0;
         if (abs(y) < DEAD_ZONE) y = 0;
         if (abs(yaw) < DEAD_ZONE) yaw = 0;
@@ -80,25 +79,23 @@ void motorControlTask(void *parameter) {
         feedback.frontRightSpeed = frontRight.getCurrentSpeed();
         feedback.rearLeftSpeed = rearLeft.getCurrentSpeed();
         feedback.rearRightSpeed = rearRight.getCurrentSpeed();
-
-        feedback.pitch = 0.0; 
+        feedback.pitch = 0.0;
         feedback.roll = 0.0;
         feedback.yaw = yaw;
 
-        esp_err_t result = esp_now_send(macPadXiao, (uint8_t *) &feedback, sizeof(feedback));
+        esp_err_t result = esp_now_send(macPadXiao, (uint8_t*)&feedback, sizeof(feedback));
         if (result != ESP_OK) {
             Serial.println("❌ Błąd wysyłania feedbacku");
         }
 
-        vTaskDelay(50 / portTICK_PERIOD_MS); // Odświeżanie co 50 ms (20Hz)
+        vTaskDelay(50 / portTICK_PERIOD_MS);
     }
 }
 
-// ===== TASK 4: ODCZYTYWANIE ENKODERÓW =====
+// TASK 4: ODCZYTYWANIE ENKODERÓW
 void encoderTask(void *parameter) {
     while (1) {
-        EncoderData data = encoderReader.readEncoders();
-
+        EncoderData data = encoderReader->readEncoders();
         Serial.print("Front Left: ");
         Serial.print(data.frontLeft);
         Serial.print(", Front Right: ");
@@ -107,12 +104,11 @@ void encoderTask(void *parameter) {
         Serial.print(data.rearLeft);
         Serial.print(", Rear Right: ");
         Serial.println(data.rearRight);
-
         vTaskDelay(100 / portTICK_PERIOD_MS);
     }
 }
 
-// ===== SETUP =====
+// SETUP
 void setup() {
     Serial.begin(115200);
     WiFi.mode(WIFI_STA);
@@ -138,21 +134,24 @@ void setup() {
         while (1) delay(100);
     }
 
-    // Inicjalizacja enkoderów – wywołanie attachSingleEdge oraz wyzerowanie liczników
     frontLeftEncoder.attachSingleEdge(FL_ENCODER_A, FL_ENCODER_B);
     frontRightEncoder.attachSingleEdge(FR_ENCODER_A, FR_ENCODER_B);
     rearLeftEncoder.attachSingleEdge(RL_ENCODER_A, RL_ENCODER_B);
     rearRightEncoder.attachSingleEdge(RR_ENCODER_A, RR_ENCODER_B);
+    //delay(500);
     frontLeftEncoder.clearCount();
     frontRightEncoder.clearCount();
     rearLeftEncoder.clearCount();
     rearRightEncoder.clearCount();
+    //delay(500);
 
-    // Resetujemy wartości pomocnicze w obiekcie encoderReader,
-    // aby zsynchronizować je z aktualnymi odczytami enkoderów
-    encoderReader.resetEncoders();
+    // Tworzymy obiekt EncoderReader przekazując rozdzielczość z parameters.h
+    encoderReader = new EncoderReader(&frontLeftEncoder, &frontRightEncoder, &rearLeftEncoder, &rearRightEncoder, ENCODER_RESOLUTION);
+    encoderReader->begin();
+    //delay(500);
+    Serial.println("✅ Inicjalizacja enkoderów zakończona");
+    
 
-    // Tworzenie tasków FreeRTOS
     xTaskCreatePinnedToCore(espNowTask, "ESPNowTask", 2048, NULL, 1, &espNowTaskHandle, 0);
     xTaskCreatePinnedToCore(motorControlTask, "MotorControlTask", 2048, NULL, 1, &motorControlTaskHandle, 1);
     xTaskCreatePinnedToCore(encoderTask, "EncoderTask", 2048, NULL, 1, &encoderTaskHandle, 1);
@@ -161,5 +160,5 @@ void setup() {
 }
 
 void loop() {
-    // Pusta – wszystko działa w FreeRTOS
+    // Pusta – działamy w FreeRTOS
 }
