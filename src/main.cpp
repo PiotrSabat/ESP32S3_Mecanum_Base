@@ -66,12 +66,14 @@ void motorControlTask(void *parameter) {
         int x = myData_from_Pad.L_Joystick_x_message;
         int y = myData_from_Pad.L_Joystick_y_message;
         int yaw = myData_from_Pad.R_Joystick_x_message;
-
+        
+        //nadiarowo do wykasowania
+        /* 
         if (abs(x) < DEAD_ZONE) x = 0;
         if (abs(y) < DEAD_ZONE) y = 0;
         if (abs(yaw) < DEAD_ZONE) yaw = 0;
-
-        drive.move(x, y, yaw);
+        */
+        drive.moveRPM(x, y, yaw);
 
 
         vTaskDelay(50 / portTICK_PERIOD_MS);
@@ -92,7 +94,9 @@ float rpmFL, rpmFR, rpmRL, rpmRR;
 encoderReader->getRPMs(rpmFL, rpmFR, rpmRL, rpmRR);
 
 // Pobieramy surowe odczyty liczników
-EncoderData data = encoderReader->readEncoders();
+EncoderData dataEncoder = encoderReader->readEncoders();
+// Pobieramy dane z MecanumDrive o zadanej prędkości
+RPMData dataRPM = drive.readRPMs();
 
 // Wypisanie nagłówków
 Serial.println("---------------------------------------------------------");
@@ -101,25 +105,38 @@ Serial.println("---------------------------------------------------------");
 
 // Wypisanie liczników enkoderów
 Serial.print("FL: ");
-Serial.print(data.frontLeft);
+Serial.print(dataEncoder.frontLeft);
 Serial.print("\t FR: ");
-Serial.print(data.frontRight);
+Serial.print(dataEncoder.frontRight);
 Serial.print("\t RL: ");
-Serial.print(data.rearLeft);
+Serial.print(dataEncoder.rearLeft);
 Serial.print("\t RR: ");
-Serial.println(data.rearRight);
+Serial.println(dataEncoder.rearRight);
 
-// Wypisanie RPM (zaokrąglone do 1 miejsca po przecinku)
-Serial.print("RPM: ");
+// Wypisanie RPM z enkoderów
+
+
+//wyświetlenie zadanej prędkości w RPM
+Serial.println("---------------------------------------------------------");
+Serial.println("       ZADANE RPM");
+Serial.println("---------------------------------------------------------");
+Serial.print("FL: ");
+Serial.print(dataRPM.frontLeft);    
+Serial.print("\t FR: ");
+Serial.print(dataRPM.frontRight);
+Serial.print("\t RL: ");
+Serial.print(dataRPM.rearLeft);
+Serial.print("\t RR: ");
+Serial.println(dataRPM.rearRight);
+
+Serial.print("FL: ");
 Serial.print(rpmFL, 1);
-Serial.print("\t ");
+Serial.print("\t FR: ");
 Serial.print(rpmFR, 1);
-Serial.print("\t ");
+Serial.print("\t RL: ");
 Serial.print(rpmRL, 1);
-Serial.print("\t ");
+Serial.print("\t RR: ");
 Serial.println(rpmRR, 1);
-
-
 
         vTaskDelay(100 / portTICK_PERIOD_MS);
     }

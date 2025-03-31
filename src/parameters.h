@@ -1,3 +1,6 @@
+#ifndef PARAMETERS_H
+#define PARAMETERS_H
+
 #include <Arduino.h>
 //PWM Syglal for motors max 20kHz
 //H-Bridge 
@@ -42,7 +45,7 @@
 #define ENCODER_RESOLUTION 960
 
 //maksymalna prędkość silników RPM
-#define MAX_RPM 120
+#define MAX_RPM 180
 
 
 // delay    Opóźnienia, które ustawiają jak często ma być włączony TASK freeRTOS
@@ -52,9 +55,9 @@ static const int rate_3 = 35;    // ms
 
 //Broadcast Address other ESP32 boards maximal 19
 //uint8_t macPadFireBeetle[] = {0xEC, 0x62, 0x60, 0x5A, 0x6E, 0xFC};      Pad FireBeetle ESP32 wycofany z użycia, przeznaczony do pźniejszego wykorzystania
-uint8_t macPadXiao[] = {0x34, 0x85, 0x18, 0x9E, 0x87, 0xD4};            // Pad Seeduino Xiao ESP32 S3
-uint8_t macPlatformMecanum[] = {0xDC, 0xDA, 0x0C, 0x55, 0xD5, 0xB8};   //platforma mecanum z ESP32 S3 DEVKIT C-1 N8R2
-uint8_t macMonitorDebug[] = {0xA0, 0xB7, 0x65,0x4B, 0xC5, 0x30};        //ESP 32 NodeMCU Dev Kit C V2 mit CP2102
+static const uint8_t macPadXiao[] = {0x34, 0x85, 0x18, 0x9E, 0x87, 0xD4};            // Pad Seeduino Xiao ESP32 S3
+static const uint8_t macPlatformMecanum[] = {0xDC, 0xDA, 0x0C, 0x55, 0xD5, 0xB8};   //platforma mecanum z ESP32 S3 DEVKIT C-1 N8R2
+static const uint8_t macMonitorDebug[] = {0xA0, 0xB7, 0x65,0x4B, 0xC5, 0x30};        //ESP 32 NodeMCU Dev Kit C V2 mit CP2102
 
 // messages
 // Struktura wiadomości z pada
@@ -85,7 +88,7 @@ typedef struct Message_from_Platform_Mecanum {
     float yaw;
     float batteryVoltage;
 } Message_from_Platform_Mecanum;
-
+#endif // PARAMETERS_H
 
 
 

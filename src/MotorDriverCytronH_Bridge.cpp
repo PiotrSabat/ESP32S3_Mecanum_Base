@@ -9,7 +9,7 @@ MotorDriverCytronH_Bridge::MotorDriverCytronH_Bridge(uint8_t pin1, uint8_t pin2,
 {
     pinMode(_pin1, OUTPUT);
     pinMode(_pin2, OUTPUT);
-    delay(50); // Oczekiwanie na ustabilizowanie się pinów
+    delay(200); // Oczekiwanie na ustabilizowanie się pinów
 
     digitalWrite(_pin1, LOW);
     digitalWrite(_pin2, LOW);
