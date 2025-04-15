@@ -78,14 +78,23 @@ typedef struct Message_from_Pad {
 
 // Struktura wiadomości z platformy mecanum
 typedef struct Message_from_Platform_Mecanum {
-    uint16_t seqNum;
-    int16_t frontLeftSpeed;
-    int16_t frontRightSpeed;
-    int16_t rearLeftSpeed;
-    int16_t rearRightSpeed;
-    float pitch;
-    float roll;
-    float yaw;
+    uint32_t timestamp = 0;  // Heartbeat – bieżący czas (millis())
+    uint32_t totalMessages = 0; // Liczba wysłanych wiadomości
+    // Prędkości kół w RPM
+    float frontLeftSpeedRPM = 0;
+    float frontRightSpeedRPM = 0;
+    float rearLeftSpeedRPM = 0;
+    float rearRightSpeedRPM = 0;
+    // Dane z enkoderow
+    int64_t frontLeftEncoder = 0;
+    int64_t frontRightEncoder = 0;
+    int64_t rearLeftEncoder = 0;
+    int64_t rearRightEncoder = 0;
+    // Kąty orientacji z IMU - do dalszej implementacji, na razie nie ma IMU
+    float pitch = 0;
+    float roll = 0;
+    float yaw = 0;
+    // Napięcie baterii - do dalszej implementacji, na razie nie ma pomiaru napięcia
     float batteryVoltage;
 } Message_from_Platform_Mecanum;
 #endif // PARAMETERS_H
