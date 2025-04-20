@@ -62,8 +62,8 @@ static const uint8_t macMonitorDebug[] = {0xA0, 0xB7, 0x65,0x4B, 0xC5, 0x30};   
 // messages
 // Struktura wiadomości z pada
 typedef struct Message_from_Pad {
-    uint32_t timestamp = 0;  // Heartbeat – bieżący czas (millis())
-    uint32_t totalMessages = 0; // Liczba wysłanych wiadomości
+    uint32_t timeStamp = 0;  // Heartbeat – bieżący czas (millis())
+    uint32_t messageSequenceNumber = 0; // Liczba wysłanych wiadomości
     int16_t L_Joystick_x_message = 0;
     int16_t L_Joystick_y_message = 0;
     int16_t R_Joystick_x_message = 0;
