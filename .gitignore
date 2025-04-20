@@ -4,7 +4,7 @@
 
 .pio/
 .pio/libdeps/
-/include/
+include/
 
 .vscode/
 .vscode/*.db
