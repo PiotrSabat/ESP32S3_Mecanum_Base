@@ -1,5 +1,12 @@
 # Mecanum Platform – ESP32-S3 + Encoders + IMU + FreeRTOS
 
+<p align="center">
+  <img src="assets/platform_top.jpeg" alt="Top view of the mecanum platform" width="400"/>
+  <br/>
+  <img src="assets/platform_bottom.jpeg" alt="Bottom view of the mecanum platform" width="400"/>
+</p>
+
+
 This repository contains the firmware for a mecanum-wheeled robotic platform based on the ESP32-S3. The platform is designed as part of a modular robotics system and communicates wirelessly using ESP-NOW or via cable using SPI. It supports odometry using wheel encoders, orientation estimation via an IMU, and real-time motor control through PWM signals.
 
 ---
