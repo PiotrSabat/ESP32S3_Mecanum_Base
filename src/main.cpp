@@ -6,6 +6,10 @@
 #include "MecanumDrive.h"
 #include <ESP32Encoder.h>
 #include "EncoderReader.h"
+#include "messages.h"
+//#include "mac_addresses.h"
+#include "mac_addresses_private.h"
+
 
 // Data structure from the controller
 Message_from_Pad myData_from_Pad;
