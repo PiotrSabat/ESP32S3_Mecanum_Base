@@ -1,6 +1,5 @@
 #include "MecanumDrive.h"
 
-
 MecanumDrive::MecanumDrive(
     MotorDriverCytronH_Bridge* frontLeft,
     MotorDriverCytronH_Bridge* frontRight,
@@ -21,10 +20,10 @@ void MecanumDrive::move(int x, int y, int yaw) {
     int rearLeft   = y - x + yaw;
     int rearRight  = y + x - yaw;
 
-    // Normalizacja mocy
+    // Normalize motor power
     normalizeMotorPower(frontLeft, frontRight, rearLeft, rearRight);
 
-    // Sterowanie silnikami
+    // Control motors
     _frontLeft->setSpeed(frontLeft);
     _frontRight->setSpeed(frontRight);
     _rearLeft->setSpeed(rearLeft);
@@ -37,7 +36,7 @@ void MecanumDrive::applyDeadZone(int& x, int& y, int& yaw) {
     if (abs(yaw) < DEAD_ZONE) yaw = 0;
 }
 
-//zabezpieczenie przed przekroczeniem maksymalnej prędkości, do usunięcia, jeśli PID działa poprawnie
+// Prevent exceeding the maximum speed; can be removed if PID works correctly
 void MecanumDrive::normalizeMotorPower(int& fl, int& fr, int& rl, int& rr) {
     int maxPower = max(max(abs(fl), abs(fr)), max(abs(rl), abs(rr)));
     if (maxPower > MAX_SPEED) {
@@ -48,63 +47,61 @@ void MecanumDrive::normalizeMotorPower(int& fl, int& fr, int& rl, int& rr) {
     }
 }
 
-//nowe metody, proby okiełznania PID
+// New methods: attempts to integrate PID control
 
 float MecanumDrive::convertToRPM(int padValue) {
-//Jeśli wartość jest w obszarze martwym, zwroc 0
-    if(abs(padValue) < DEAD_ZONE) {
+    // If value is within the dead zone, return 0
+    if (abs(padValue) < DEAD_ZONE) {
         return 0.0;
     }
 
-    //zachowujemy znak (kierunek)
+    // Preserve sign (direction)
     int sign = (padValue > 0) ? 1 : -1;
 
-    // Efektywna wartość to cała wartość minus wartość martwa
+    // Effective value is absolute value minus the dead zone
     int effectiveValue = abs(padValue) - DEAD_ZONE;
 
-    //Maksymalna efektywna wartość, przyjmujemy ze zakres jest -511 do 511
+    // Maximum effective value; assuming input range is -511 to 511
     int maxEffectiveValue = MAX_SPEED - DEAD_ZONE;
 
-    //ochrona dzielenia przez 0
-    if(maxEffectiveValue == 0) {
+    // Protect against division by zero
+    if (maxEffectiveValue == 0) {
         return 0.0;
     }
 
-    // Mapowanie efektywnej wartości na zakres RPM: 
-    // jeśli effectiveValue == maxEffective to RPM == MAX_RPM
+    // Map effective value to RPM range: if effectiveValue == maxEffectiveValue then RPM == MAX_RPM
     float rpm = (effectiveValue / (float)maxEffectiveValue) * MAX_RPM;
     return sign * rpm;
 }
 
 void MecanumDrive::moveRPM(int x, int y, int yaw) {
-    // Zastosowanie martwej strefy
+    // Apply dead zone
     applyDeadZone(x, y, yaw);
 
     normalizeInputVector(x, y, yaw);
     
-    // obliczenie surowych wartości dla każdego koła
+    // Compute raw values for each wheel
     int rawFL = y + x + yaw;
     int rawFR = y - x - yaw;
     int rawRL = y - x + yaw;
     int rawRR = y + x - yaw;
 
+    // Perform standard movement
     move(x, y, yaw);
 
-    // Konwersja wartości z pada na RPM
+    // Convert controller values to RPM
     rpmFL = convertToRPM(rawFL);
     rpmFR = convertToRPM(rawFR);
     rpmRL = convertToRPM(rawRL);
     rpmRR = convertToRPM(rawRR);
-   
 }
 
-// Normalizacja wektora wejściowego (x, y, yaw)
-// Jeśli długość wektora > MAX_INPUT (np. 511), skalujemy wszystkie składowe
+// Normalize input vector (x, y, yaw); if its magnitude > MAX_INPUT (e.g., 511), scale all components
 void MecanumDrive::normalizeInputVector(int &x, int &y, int &yaw) {
     float norm = sqrt((float)x * x + (float)y * y + (float)yaw * yaw);
-    const float MAX_INPUT_PWM = 511.0; // maksymalny dopuszczalny norm wejścia
-    if(norm > MAX_INPUT) {
-        float scale = MAX_INPUT / norm;
+    const float MAX_INPUT_PWM = 511.0; // maximum allowed input magnitude
+    if (norm > MAX_INPUT_PWM) {
+        float scale = MAX_INPUT_PWM / norm;
         x = (int)(x * scale);
         y = (int)(y * scale);
         yaw = (int)(yaw * scale);

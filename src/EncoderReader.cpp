@@ -4,7 +4,7 @@
 EncoderReader::EncoderReader(ESP32Encoder* fl, ESP32Encoder* fr, ESP32Encoder* rl, ESP32Encoder* rr, uint16_t encoderResolution)
     : encoderFL(fl), encoderFR(fr), encoderRL(rl), encoderRR(rr), _encoderResolution(encoderResolution)
 {
-    // Konstruktor nie wykonuje operacji sprzętowych – inicjalizację wykonamy w begin().
+    // Constructor does not perform hardware operations – initialization will be done in begin().
 }
 
 void EncoderReader::begin() {
@@ -18,7 +18,7 @@ void EncoderReader::begin() {
     lastCountRL = encoderRL->getCount();
     lastCountRR = encoderRR->getCount();
     
-    //Serial.println("EncoderReader::begin() wykonane.");
+    // Serial.println("EncoderReader::begin() executed.");
 }
 
 EncoderData EncoderReader::readEncoders() {
@@ -46,19 +46,19 @@ void EncoderReader::resetEncoders() {
     lastCountRL = 0;
     lastCountRR = 0;
     
-   // Serial.println("EncoderReader::resetEncoders() wykonane.");
+    // Serial.println("EncoderReader::resetEncoders() executed.");
 }
 
 void EncoderReader::getRPMs(float& rpmFL, float& rpmFR, float& rpmRL, float& rpmRR) {
     unsigned long currentTime = millis();
     
-    // Jednorazowy odczyt dla każdego enkodera
+    // Single read for each encoder
     int64_t currentCountFL = encoderFL->getCount();
     int64_t currentCountFR = encoderFR->getCount();
     int64_t currentCountRL = encoderRL->getCount();
     int64_t currentCountRR = encoderRR->getCount();
     
-    // Obliczenie różnic czasu i impulsów
+    // Compute time and pulse differences
     unsigned long deltaTimeFL = currentTime - lastTimeFL;
     unsigned long deltaTimeFR = currentTime - lastTimeFR;
     unsigned long deltaTimeRL = currentTime - lastTimeRL;
@@ -69,13 +69,13 @@ void EncoderReader::getRPMs(float& rpmFL, float& rpmFR, float& rpmRL, float& rpm
     int64_t deltaCountRL = currentCountRL - lastCountRL;
     int64_t deltaCountRR = currentCountRR - lastCountRR;
     
-    // Obliczanie RPM – używamy _encoderResolution podanej w konstruktorze
+    // Calculate RPM – using the _encoderResolution provided in the constructor
     rpmFL = (deltaTimeFL == 0) ? 0.0 : (deltaCountFL * 60000.0) / (_encoderResolution * deltaTimeFL);
     rpmFR = (deltaTimeFR == 0) ? 0.0 : (deltaCountFR * 60000.0) / (_encoderResolution * deltaTimeFR);
     rpmRL = (deltaTimeRL == 0) ? 0.0 : (deltaCountRL * 60000.0) / (_encoderResolution * deltaTimeRL);
     rpmRR = (deltaTimeRR == 0) ? 0.0 : (deltaCountRR * 60000.0) / (_encoderResolution * deltaTimeRR);
     
-    // Aktualizacja zmiennych pomocniczych
+    // Update helper variables
     lastTimeFL = currentTime;
     lastTimeFR = currentTime;
     lastTimeRL = currentTime;

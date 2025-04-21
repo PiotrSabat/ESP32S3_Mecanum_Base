@@ -3,7 +3,7 @@
 
 #include <ESP32Encoder.h>
 
-// Struktura przechowująca odczyty z enkoderów
+// Structure holding encoder readings
 struct EncoderData {
     int64_t frontLeft;
     int64_t frontRight;
@@ -13,19 +13,19 @@ struct EncoderData {
 
 class EncoderReader {
 public:
-    // Konstruktor – przyjmuje wskaźniki do enkoderów oraz rozdzielczość (pulses per revolution)
+    // Constructor – accepts pointers to the encoders and the resolution (pulses per revolution)
     EncoderReader(ESP32Encoder* fl, ESP32Encoder* fr, ESP32Encoder* rl, ESP32Encoder* rr, uint16_t encoderResolution);
     
-    // Metoda inicjalizacyjna, którą należy wywołać w setup()
+    // Initialization method to be called in setup()
     void begin();
     
-    // Odczyt aktualnych liczników enkoderów
+    // Read current encoder counts
     EncoderData readEncoders();
     
-    // Zerowanie liczników enkoderów oraz zmiennych pomocniczych (dla obliczeń RPM)
+    // Reset encoder counts and helper variables (for RPM calculations)
     void resetEncoders();
     
-    // Obliczenie RPM dla wszystkich enkoderów – wynik wyliczany na podstawie przekazanej rozdzielczości
+    // Calculate RPM for all encoders – result computed based on the provided resolution
     void getRPMs(float& rpmFL, float& rpmFR, float& rpmRL, float& rpmRR);
     
 private:
@@ -36,7 +36,7 @@ private:
     
     uint16_t _encoderResolution;
     
-    // Oddzielne zmienne pomocnicze dla każdego enkodera
+    // Separate helper variables for each encoder
     unsigned long lastTimeFL;
     unsigned long lastTimeFR;
     unsigned long lastTimeRL;
