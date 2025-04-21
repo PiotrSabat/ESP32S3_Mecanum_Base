@@ -10,12 +10,15 @@
 typedef struct Message_from_Pad {
     uint32_t timeStamp = 0;            // Timestamp (millis) for heartbeat
     uint32_t messageSequenceNumber = 0;// Sequence number of messages sent
+
     int16_t L_Joystick_x_message = 0;  // Left joystick X-axis value
     int16_t L_Joystick_y_message = 0;  // Left joystick Y-axis value
     int16_t R_Joystick_x_message = 0;  // Right joystick X-axis value
     int16_t R_Joystick_y_message = 0;  // Right joystick Y-axis value
+
     uint32_t L_Joystick_buttons_message = 0; // Left joystick button states
     uint32_t R_Joystick_buttons_message = 0; // Right joystick button states
+    
     int16_t L_Joystick_raw_x = 0;      // Raw sensor X-value for calibration
     int16_t L_Joystick_raw_y = 0;      // Raw sensor Y-value for calibration
     int16_t R_Joystick_raw_x = 0;      // Raw sensor X-value for calibration
