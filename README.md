@@ -14,7 +14,7 @@ This repository contains the firmware for a mecanum-wheeled robotic platform bas
 ## Main Features
 - **ESP32-S3** as the main controller
 - **4 DC motors with encoders** for mecanum drive (X, Y, rotation)
-- **PWM + DIR motor drivers**
+- **PWM motor drivers**
 - **Incremental encoders** with ~1000 pulses per minute
 - **FreeRTOS** task-based architecture
 - **Modular communication via ESP-NOW **

@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <esp_now.h>
 #include <WiFi.h>
-#include "parameters.h"
+//#include "parameters.h"
 #include "MotorDriverCytronH_Bridge.h"
 #include "MecanumDrive.h"
 #include <ESP32Encoder.h>
