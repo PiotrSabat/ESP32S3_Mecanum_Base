@@ -1,246 +1,214 @@
 #include <Arduino.h>
 #include <esp_now.h>
 #include <WiFi.h>
-//#include "parameters.h"
+#include "parameters.h"
 #include "MotorDriverCytronH_Bridge.h"
 #include "MecanumDrive.h"
 #include <ESP32Encoder.h>
 #include "EncoderReader.h"
+#include "PIDController.h"
 #include "messages.h"
 //#include "mac_addresses.h"
-#include "mac_addresses_private.h"
-
+#include "mac_addresses_private.h"  // Include only real MACs via build flag instead of both files
 
 // Data structure from the controller
-Message_from_Pad myData_from_Pad;
-
-// Local control data (you can ignore these if you only use myData_from_Pad)
-typedef struct {
-  int x;
-  int y;
-  int yaw;
-} MovementData;
-
+Message_from_Pad myData_from_Pad = {}; // Initialize to zero
+SemaphoreHandle_t padDataMutex;  // Mutex to protect pad data access
 int32_t totalMessages = 0;
 
-// Global variable and mutex to protect data access
-volatile MovementData movementData;
-SemaphoreHandle_t movementMutex;
-
-// Motor initialization
+// Motor driver objects
 MotorDriverCytronH_Bridge rearRight(RR_PIN2, RR_PIN1, RR_CHANNEL2, RR_CHANNEL1);
 MotorDriverCytronH_Bridge frontRight(FR_PIN2, FR_PIN1, FR_CHANNEL2, FR_CHANNEL1);
 MotorDriverCytronH_Bridge frontLeft(FL_PIN1, FL_PIN2, FL_CHANNEL1, FL_CHANNEL2);
 MotorDriverCytronH_Bridge rearLeft(RL_PIN1, RL_PIN2, RL_CHANNEL1, RL_CHANNEL2);
 
-// Create MecanumDrive object
+// Mecanum drive vectoring
 MecanumDrive drive(&frontLeft, &frontRight, &rearLeft, &rearRight);
 
-// Encoder definitions
-ESP32Encoder frontLeftEncoder;
-ESP32Encoder frontRightEncoder;
-ESP32Encoder rearLeftEncoder;
-ESP32Encoder rearRightEncoder;
+// Encoders and reader
+ESP32Encoder frontLeftEncoder, frontRightEncoder, rearLeftEncoder, rearRightEncoder;
+EncoderReader encoderReader(&frontLeftEncoder, &frontRightEncoder, &rearLeftEncoder, &rearRightEncoder, ENCODER_RESOLUTION);
 
-// Pointer to EncoderReader object — will be created in setup()
-EncoderReader* encoderReader = nullptr;
+// PID controller objects for each wheel
+// PID Controller Parameters
+float KP = 0.5;   // Proportional gain
+float KI = 0.1;   // Integral gain
+float KD = 0.01;  // Derivative gain
+float MAX_OUT = 511; // Maximum output value
+float MIN_OUT = -511; // Minimum output value
 
-// Peer info
-esp_now_peer_info_t peerInfo;
-esp_now_peer_info_t peerInfoMonitor;
 
-// Task handles
-TaskHandle_t espNowTaskHandle;
-TaskHandle_t motorControlTaskHandle;
-TaskHandle_t encoderTaskHandle;
+PIDController pidFL(KP, KI, KD, MAX_OUT, MIN_OUT);
+PIDController pidFR(KP, KI, KD, MAX_OUT, MIN_OUT);
+PIDController pidRL(KP, KI, KD, MAX_OUT, MIN_OUT);
+PIDController pidRR(KP, KI, KD, MAX_OUT, MIN_OUT);
+
+// ESP-NOW peer info
+esp_now_peer_info_t peerInfo, peerInfoMonitor;
+
+// FreeRTOS task handles
+TaskHandle_t espNowTaskHandle, motorControlTaskHandle, pidTaskHandle, debugTaskHandle;
 
 // ESP-NOW receive callback
 void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
-  // Protect access to myData_from_Pad
-  if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
-    if (len == sizeof(Message_from_Pad)) {
-      memcpy((void*)&myData_from_Pad, incomingData, sizeof(Message_from_Pad));
+    if (len == sizeof(myData_from_Pad) && xSemaphoreTake(padDataMutex, portMAX_DELAY) == pdTRUE) {
+        memcpy(&myData_from_Pad, incomingData, sizeof(myData_from_Pad));
+        xSemaphoreGive(padDataMutex);
     }
-    xSemaphoreGive(movementMutex);
-  }
 }
 
-// TASK 1: Sending data via ESP-NOW (empty loop here)
+// TASK 1: Send telemetry via ESP-NOW
 void espNowTask(void *parameter) {
-  while (1) {
-    // Local debug data structure for the mecanum platform to improve performance
-    Message_from_Platform_Mecanum debugMsg;
-    // Protect data access with mutex
-    if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
-      debugMsg.timestamp = millis();
-      debugMsg.totalMessages = totalMessages;
-      debugMsg.frontLeftSpeedRPM = drive.readRPMs().frontLeft;
-      debugMsg.frontRightSpeedRPM = drive.readRPMs().frontRight;
-      debugMsg.rearLeftSpeedRPM = drive.readRPMs().rearLeft;
-      debugMsg.rearRightSpeedRPM = drive.readRPMs().rearRight;
-      debugMsg.frontLeftEncoder = frontLeftEncoder.getCount();
-      debugMsg.frontRightEncoder = frontRightEncoder.getCount();
-      debugMsg.rearLeftEncoder = rearLeftEncoder.getCount();
-      debugMsg.rearRightEncoder = rearRightEncoder.getCount();
-      // Not yet implemented
-      debugMsg.pitch = 0;       
-      debugMsg.roll = 0;
-      debugMsg.yaw = 0;
-      debugMsg.batteryVoltage = 0;
-      xSemaphoreGive(movementMutex);
+    TickType_t lastWakeTime = xTaskGetTickCount();
+    const TickType_t interval = pdMS_TO_TICKS(50);
+    while (true) {
+        Message_from_Platform_Mecanum debugMsg = {}; // Initialize to zero
+        if (xSemaphoreTake(padDataMutex, portMAX_DELAY) == pdTRUE) {
+            debugMsg.timestamp = millis();
+            debugMsg.totalMessages = totalMessages++;
+            auto rpm = drive.readRPMs();
+            debugMsg.frontLeftSpeedRPM  = rpm.frontLeft;
+            debugMsg.frontRightSpeedRPM = rpm.frontRight;
+            debugMsg.rearLeftSpeedRPM   = rpm.rearLeft;
+            debugMsg.rearRightSpeedRPM  = rpm.rearRight;
+            debugMsg.frontLeftEncoder   = frontLeftEncoder.getCount();
+            debugMsg.frontRightEncoder  = frontRightEncoder.getCount();
+            debugMsg.rearLeftEncoder    = rearLeftEncoder.getCount();
+            debugMsg.rearRightEncoder   = rearRightEncoder.getCount();
+            debugMsg.KP_message = KP;
+            debugMsg.KI_message = KI;
+            debugMsg.KD_message = KD;
+            debugMsg.MAX_OUT_message = MAX_OUT;
+            debugMsg.MIN_OUT_message = MIN_OUT;
+            xSemaphoreGive(padDataMutex);
+        }
+        esp_now_send(macMonitorDebug, (uint8_t *)&debugMsg, sizeof(debugMsg));
+        vTaskDelayUntil(&lastWakeTime, interval);
     }
-    // Send packet to MonitorDebug (address macMonitorDebug)
-    esp_err_t result = esp_now_send(macMonitorDebug, (uint8_t *)&debugMsg, sizeof(Message_from_Platform_Mecanum));
-    if (result == ESP_OK) {
-      //Serial.println("Sent data to monitor");
-      totalMessages++;
-    }
-    else {
-      //Serial.println("Error sending data to monitor");
-    }
-
-    vTaskDelay(50 / portTICK_PERIOD_MS);
-  }
 }
 
-// TASK 2: Motor control – fetch controller data protected by mutex
+// TASK 2: Read pad and set drive target RPMs
 void motorControlTask(void *parameter) {
-  int x, y, yaw;
-  while (1) {
-    // Protect read of myData_from_Pad
-    if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
-      x = myData_from_Pad.L_Joystick_x_message;
-      y = myData_from_Pad.L_Joystick_y_message;
-      yaw = myData_from_Pad.R_Joystick_x_message;
-      xSemaphoreGive(movementMutex);
+    TickType_t lastWakeTime = xTaskGetTickCount();
+    const TickType_t interval = pdMS_TO_TICKS(20);
+    while (true) {
+        int x=0, y=0, yaw=0;
+        if (xSemaphoreTake(padDataMutex, portMAX_DELAY) == pdTRUE) {
+            x = myData_from_Pad.L_Joystick_x_message;
+            y = myData_from_Pad.L_Joystick_y_message;
+            yaw = myData_from_Pad.R_Joystick_x_message;
+            xSemaphoreGive(padDataMutex);
+        }
+        drive.moveRPM(x, y, yaw);  // update target RPMs only
+        vTaskDelayUntil(&lastWakeTime, interval);
     }
-    // Call control method, e.g., moveRPM()
-    drive.moveRPM(x, y, yaw);
-
-    vTaskDelay(20 / portTICK_PERIOD_MS);
-  }
 }
 
-// TASK 3: Debug – read and display data (protected by mutex)
-void encoderTask(void *parameter) {
-  while (1) {
-    // Protect shared data access – e.g., myData_from_Pad or encoder data
-    if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
-      // Get RPMs from encoders
-      float rpmFL, rpmFR, rpmRL, rpmRR;
-      encoderReader->getRPMs(rpmFL, rpmFR, rpmRL, rpmRR);
-      // Get raw encoder counts
-      EncoderData dataEncoder = encoderReader->readEncoders();
-      // Get target RPM data from MecanumDrive
-      RPMData dataRPM = drive.readRPMs();
-      xSemaphoreGive(movementMutex);
-      
-      // Clear screen and display results in table format:
-      Serial.write("\033[2J"); // Clear screen
-      Serial.write("\033[H");  // Move cursor to top-left
+// TASK 3: PID control loop, applies control to motors
+void pidTask(void *parameter) {
+    TickType_t lastWakeTime = xTaskGetTickCount();
+    const TickType_t interval = pdMS_TO_TICKS(50);
+    unsigned long prevMillis = millis();
 
-      // Print headers
-      Serial.println("---------------------------------------------------------");
-      Serial.println("       ENCODER COUNTS             RPM");
-      Serial.println("---------------------------------------------------------");
+    while (true) {
+        unsigned long now = millis();
+        float dt = (now - prevMillis) / 1000.0f;
+        prevMillis = now;
 
-      // Print encoder counts
-      Serial.print("FL: ");
-      Serial.print(dataEncoder.frontLeft);
-      Serial.print("\t FR: ");
-      Serial.print(dataEncoder.frontRight);
-      Serial.print("\t RL: ");
-      Serial.print(dataEncoder.rearLeft);
-      Serial.print("\t RR: ");
-      Serial.println(dataEncoder.rearRight);
+        RPMData target = drive.readRPMs();
+        float measFL, measFR, measRL, measRR;
+        encoderReader.getRPMs(measFL, measFR, measRL, measRR);
 
-      // Print target RPM values
-      Serial.println("---------------------------------------------------------");
-      Serial.println("       TARGET RPM");
-      Serial.println("---------------------------------------------------------");
-      Serial.print("FL: ");
-      Serial.print(dataRPM.frontLeft);    
-      Serial.print("\t FR: ");
-      Serial.print(dataRPM.frontRight);
-      Serial.print("\t RL: ");
-      Serial.print(dataRPM.rearLeft);
-      Serial.print("\t RR: ");
-      Serial.println(dataRPM.rearRight);
+        int cmdFL = (int)pidFL.compute(target.frontLeft,  measFL, dt);
+        int cmdFR = (int)pidFR.compute(target.frontRight, measFR, dt);
+        int cmdRL = (int)pidRL.compute(target.rearLeft,   measRL, dt);
+        int cmdRR = (int)pidRR.compute(target.rearRight,  measRR, dt);
 
-      // Print actual RPM from encoders
-      Serial.print("FL: ");
-      Serial.print(rpmFL, 1);
-      Serial.print("\t FR: ");
-      Serial.print(rpmFR, 1);
-      Serial.print("\t RL: ");
-      Serial.print(rpmRL, 1);
-      Serial.print("\t RR: ");
-      Serial.println(rpmRR, 1);
+        frontLeft.setSpeed(cmdFL);
+        frontRight.setSpeed(cmdFR);
+        rearLeft.setSpeed(cmdRL);
+        rearRight.setSpeed(cmdRR);
+
+        vTaskDelayUntil(&lastWakeTime, interval);
     }
-    vTaskDelay(100 / portTICK_PERIOD_MS);
-  }
 }
+
+// TASK 4: Debug display, original format
+void debugTask(void *parameter) {
+    TickType_t lastWakeTime = xTaskGetTickCount();
+    const TickType_t interval = pdMS_TO_TICKS(100);
+    while (true) {
+        Serial.write("\033[2J\033[H");
+        Serial.println("---------------------------------------------------------");
+        Serial.println("       ENCODER COUNTS             RPM");
+        Serial.println("---------------------------------------------------------");
+
+        // Read raw encoder counts
+        EncoderData enc = encoderReader.readEncoders();
+        Serial.print("FL: "); Serial.print(enc.frontLeft);
+        Serial.print("	 FR: "); Serial.print(enc.frontRight);
+        Serial.print("	 RL: "); Serial.print(enc.rearLeft);
+        Serial.print("	 RR: "); Serial.println(enc.rearRight);
+
+        // Read target RPMs
+        Serial.println("---------------------------------------------------------");
+        Serial.println("       TARGET RPM");
+        Serial.println("---------------------------------------------------------");
+        RPMData tgt = drive.readRPMs();
+        Serial.print("FL: "); Serial.print(tgt.frontLeft);
+        Serial.print("	 FR: "); Serial.print(tgt.frontRight);
+        Serial.print("	 RL: "); Serial.print(tgt.rearLeft);
+        Serial.print("	 RR: "); Serial.println(tgt.rearRight);
+
+        // Read measured RPMs from encoders
+        float measFL, measFR, measRL, measRR;
+        encoderReader.getRPMs(measFL, measFR, measRL, measRR);
+        Serial.println("---------------------------------------------------------");
+        Serial.println("       MEASURED RPM");
+        Serial.println("---------------------------------------------------------");
+        Serial.print("FL: "); Serial.print(measFL, 1);
+        Serial.print("	 FR: "); Serial.print(measFR, 1);
+        Serial.print("	 RL: "); Serial.print(measRL, 1);
+        Serial.print("	 RR: "); Serial.println(measRR, 1);
+
+        vTaskDelayUntil(&lastWakeTime, interval);
+    }
+}
+    
 
 void setup() {
-  Serial.begin(115200);
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
+    Serial.begin(115200);
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect();
 
-  if (esp_now_init() != ESP_OK) {
-    Serial.println("Error initializing ESP-NOW");
-    return;
-  }
-  esp_now_register_recv_cb(OnDataRecv);
+    if (esp_now_init() != ESP_OK) return;
+    esp_now_register_recv_cb(OnDataRecv);
+    memcpy(peerInfo.peer_addr, macPadXiao, 6);
+    peerInfo.channel = 0; peerInfo.encrypt = false; esp_now_add_peer(&peerInfo);
+    memcpy(peerInfoMonitor.peer_addr, macMonitorDebug, 6);
+    peerInfoMonitor.channel = 0; peerInfoMonitor.encrypt = false; esp_now_add_peer(&peerInfoMonitor);
 
-  memcpy(peerInfo.peer_addr, macPadXiao, 6);
-  peerInfo.channel = 0;
-  peerInfo.encrypt = false;
-  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-    Serial.println("Failed to add peer");
-    return;
-  }
+    padDataMutex = xSemaphoreCreateMutex();
 
-  // Add Monitor Debug peer
-  memcpy(peerInfoMonitor.peer_addr, macMonitorDebug, 6);
-  peerInfoMonitor.channel = 0;
-  peerInfoMonitor.encrypt = false;
-  if (esp_now_add_peer(&peerInfoMonitor) != ESP_OK) {
-    Serial.println("Failed to add Monitor Debug peer");
-    return;
-  }
+    frontLeftEncoder.attachSingleEdge(FL_ENCODER_A, FL_ENCODER_B);
+    frontRightEncoder.attachSingleEdge(FR_ENCODER_A, FR_ENCODER_B);
+    rearLeftEncoder.attachSingleEdge(RL_ENCODER_A, RL_ENCODER_B);
+    rearRightEncoder.attachSingleEdge(RR_ENCODER_A, RR_ENCODER_B);
+    encoderReader.begin();
 
-  // Create mutex
-  movementMutex = xSemaphoreCreateMutex();
-  if (movementMutex == NULL) {
-    Serial.println("❌ Error creating mutex!");
-    while (1) delay(100);
-  }
+    // Ensure motors start stopped and reset PID controllers
+    frontLeft.setSpeed(0);
+    frontRight.setSpeed(0);
+    rearLeft.setSpeed(0);
+    rearRight.setSpeed(0);
+    pidFL.reset(); pidFR.reset(); pidRL.reset(); pidRR.reset();
 
-  // Initialize encoders
-  frontLeftEncoder.attachSingleEdge(FL_ENCODER_A, FL_ENCODER_B);
-  frontRightEncoder.attachSingleEdge(FR_ENCODER_A, FR_ENCODER_B);
-  rearLeftEncoder.attachSingleEdge(RL_ENCODER_A, RL_ENCODER_B);
-  rearRightEncoder.attachSingleEdge(RR_ENCODER_A, RR_ENCODER_B);
-  
-  frontLeftEncoder.clearCount();
-  frontRightEncoder.clearCount();
-  rearLeftEncoder.clearCount();
-  rearRightEncoder.clearCount();
-
-  // Create EncoderReader object with resolution from parameters.h
-  encoderReader = new EncoderReader(&frontLeftEncoder, &frontRightEncoder, &rearLeftEncoder, &rearRightEncoder, ENCODER_RESOLUTION);
-  encoderReader->begin();
-  
-  Serial.println("✅ Encoder initialization complete");
-
-  // Create FreeRTOS tasks
-  xTaskCreatePinnedToCore(espNowTask, "ESPNowTask", 2048, NULL, 1, &espNowTaskHandle, 0);
-  xTaskCreatePinnedToCore(motorControlTask, "MotorControlTask", 2048, NULL, 1, &motorControlTaskHandle, 1);
-  xTaskCreatePinnedToCore(encoderTask, "EncoderTask", 2048, NULL, 1, &encoderTaskHandle, 1);
-
-  Serial.println("✅ System ready!");
+    xTaskCreatePinnedToCore(espNowTask,       "ESPNowTask",       2048, NULL, 2, &espNowTaskHandle,    0);
+    xTaskCreatePinnedToCore(motorControlTask, "MotorControlTask",2048, NULL, 1, &motorControlTaskHandle,1);
+    xTaskCreatePinnedToCore(pidTask,          "PIDTask",         2048, NULL, 1, &pidTaskHandle,         1);
+    xTaskCreatePinnedToCore(debugTask,        "DebugTask",       4096, NULL, 1, &debugTaskHandle,       1);
 }
 
 void loop() {
-  // Empty – running under FreeRTOS
+    // Empty: tasks are running under FreeRTOS
 }
