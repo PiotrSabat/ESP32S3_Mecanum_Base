@@ -9,11 +9,16 @@
 #include "PIDController.h"
 #include "messages.h"
 //#include "mac_addresses.h"
-#include "mac_addresses_private.h"  // Include only real MACs via build flag instead of both files
+//#include "mac_addresses_private.h"  // Include only real MACs via build flag instead of both files
+
+#include "network.h"
+#include "sensor.h"
+#include "drive.h"
+#include "tasks.h"
 
 // Data structure from the controller
-Message_from_Pad myData_from_Pad = {}; // Initialize to zero
-SemaphoreHandle_t padDataMutex;  // Mutex to protect pad data access
+
+
 int32_t totalMessages = 0;
 
 // Motor driver objects
@@ -31,12 +36,6 @@ EncoderReader encoderReader(&frontLeftEncoder, &frontRightEncoder, &rearLeftEnco
 
 // PID controller objects for each wheel
 // PID Controller Parameters
-float KP = 0.5;   // Proportional gain
-float KI = 0.1;   // Integral gain
-float KD = 0.01;  // Derivative gain
-float MAX_OUT = 511; // Maximum output value
-float MIN_OUT = -511; // Minimum output value
-
 
 PIDController pidFL(KP, KI, KD, MAX_OUT, MIN_OUT);
 PIDController pidFR(KP, KI, KD, MAX_OUT, MIN_OUT);
@@ -60,7 +59,7 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
 // TASK 1: Send telemetry via ESP-NOW
 void espNowTask(void *parameter) {
     TickType_t lastWakeTime = xTaskGetTickCount();
-    const TickType_t interval = pdMS_TO_TICKS(50);
+    const TickType_t interval = pdMS_TO_TICKS(20);
     while (true) {
         Message_from_Platform_Mecanum debugMsg = {}; // Initialize to zero
         if (xSemaphoreTake(padDataMutex, portMAX_DELAY) == pdTRUE) {
@@ -75,11 +74,11 @@ void espNowTask(void *parameter) {
             debugMsg.frontRightEncoder  = frontRightEncoder.getCount();
             debugMsg.rearLeftEncoder    = rearLeftEncoder.getCount();
             debugMsg.rearRightEncoder   = rearRightEncoder.getCount();
-            debugMsg.KP_message = KP;
-            debugMsg.KI_message = KI;
-            debugMsg.KD_message = KD;
-            debugMsg.MAX_OUT_message = MAX_OUT;
-            debugMsg.MIN_OUT_message = MIN_OUT;
+            debugMsg.KP_message         = KP;
+            debugMsg.KI_message         = KI;
+            debugMsg.KD_message         = KD;
+            debugMsg.MAX_OUT_message    = MAX_OUT;
+            debugMsg.MIN_OUT_message    = MIN_OUT;
             xSemaphoreGive(padDataMutex);
         }
         esp_now_send(macMonitorDebug, (uint8_t *)&debugMsg, sizeof(debugMsg));
@@ -107,7 +106,7 @@ void motorControlTask(void *parameter) {
 // TASK 3: PID control loop, applies control to motors
 void pidTask(void *parameter) {
     TickType_t lastWakeTime = xTaskGetTickCount();
-    const TickType_t interval = pdMS_TO_TICKS(50);
+    const TickType_t interval = pdMS_TO_TICKS(20);
     unsigned long prevMillis = millis();
 
     while (true) {
@@ -178,15 +177,10 @@ void debugTask(void *parameter) {
 
 void setup() {
     Serial.begin(115200);
-    WiFi.mode(WIFI_STA);
-    WiFi.disconnect();
+    initNetwork();
 
-    if (esp_now_init() != ESP_OK) return;
-    esp_now_register_recv_cb(OnDataRecv);
-    memcpy(peerInfo.peer_addr, macPadXiao, 6);
-    peerInfo.channel = 0; peerInfo.encrypt = false; esp_now_add_peer(&peerInfo);
-    memcpy(peerInfoMonitor.peer_addr, macMonitorDebug, 6);
-    peerInfoMonitor.channel = 0; peerInfoMonitor.encrypt = false; esp_now_add_peer(&peerInfoMonitor);
+    
+  
 
     padDataMutex = xSemaphoreCreateMutex();
 
