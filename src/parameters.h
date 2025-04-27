@@ -1,106 +1,85 @@
-#ifndef PARAMETERS_H
-#define PARAMETERS_H
+#pragma once
 
 #include <Arduino.h>
-//PWM Syglal for motors max 20kHz
-//H-Bridge 
 
-//Motor pins PWM LED
-// Definicje pinów i kanałów
-#define FL_PIN1 9       //Przedni lewy motor 1A M1A
-#define FL_PIN2 10      //Przedni lewy motor 1B M1B
-#define FL_CHANNEL1 0   //Kanał LEDC dla M1A
-#define FL_CHANNEL2 1   //Kanał LEDC dla M1B
+// ===== Motor PWM Definitions =====
+// PWM signal frequency for motor drivers: 20 kHz, 9-bit resolution
 
-#define FR_PIN1 11    //Przedni prawy motor 2A M2A
-#define FR_PIN2 12    //Przedni prawy motor 2B M2B
-#define FR_CHANNEL1 2 //Kanał LEDC dla M2A
-#define FR_CHANNEL2 3 //Kanał LEDC dla M2B
+// Front Left Motor
+constexpr int FL_PIN1 = 9;        // M1A
+constexpr int FL_PIN2 = 10;       // M1B
+constexpr int FL_CHANNEL1 = 0;    // PWM channel for M1A
+constexpr int FL_CHANNEL2 = 1;    // PWM channel for M1B
 
-#define RL_PIN1 13      //Tylny lewy motor 2A M2A
-#define RL_PIN2 14      //Tylny lewy motor 2B M2B
-#define RL_CHANNEL1 4   //Kanał LEDC dla M2A
-#define RL_CHANNEL2 5   //Kanał LEDC dla M2B
+// Front Right Motor
+constexpr int FR_PIN1 = 11;       // M2A
+constexpr int FR_PIN2 = 12;       // M2B
+constexpr int FR_CHANNEL1 = 2;
+constexpr int FR_CHANNEL2 = 3;
 
-#define RR_PIN1 15      //Tylny prawy motor 1A M1A
-#define RR_PIN2 16      //Tylny prawy motor 1B M1B
-#define RR_CHANNEL1 6   //Kanał LEDC dla M1A
-#define RR_CHANNEL2 7   //Kanał LEDC dla M1B
+// Rear Left Motor
+constexpr int RL_PIN1 = 13;       // M2A
+constexpr int RL_PIN2 = 14;       // M2B
+constexpr int RL_CHANNEL1 = 4;
+constexpr int RL_CHANNEL2 = 5;
 
-// Definicje pinów i kanałów dla enkoderów
-// Enkoder Fron Left
-#define FL_ENCODER_A 1
-#define FL_ENCODER_B 2
-// Enkoder Front Right
-#define FR_ENCODER_A 4
-#define FR_ENCODER_B 5
-// Enkoder Rear Left
-#define RL_ENCODER_A 6
-#define RL_ENCODER_B 7
-// Enkoder Rear Right
-#define RR_ENCODER_A 17
-#define RR_ENCODER_B 18
+// Rear Right Motor
+constexpr int RR_PIN1 = 15;       // M1A
+constexpr int RR_PIN2 = 16;       // M1B
+constexpr int RR_CHANNEL1 = 6;
+constexpr int RR_CHANNEL2 = 7;
 
-//rozdzielczość enkoderów 960 impulsów na obrót
-#define ENCODER_RESOLUTION 960
+// ===== Encoder Pin Definitions =====
 
-//maksymalna prędkość silników RPM
-#define MAX_RPM 180
+// Front Left Encoder
+constexpr int FL_ENCODER_A = 1;
+constexpr int FL_ENCODER_B = 2;
 
+// Front Right Encoder
+constexpr int FR_ENCODER_A = 4;
+constexpr int FR_ENCODER_B = 5;
 
-// delay    Opóźnienia, które ustawiają jak często ma być włączony TASK freeRTOS
-static const int rate_1 = 50;    // ms
-static const int rate_2 = 25;    // ms
-static const int rate_3 = 35;    // ms
+// Rear Left Encoder
+constexpr int RL_ENCODER_A = 6;
+constexpr int RL_ENCODER_B = 7;
 
-//Broadcast Address other ESP32 boards maximal 19
-//uint8_t macPadFireBeetle[] = {0xEC, 0x62, 0x60, 0x5A, 0x6E, 0xFC};      Pad FireBeetle ESP32 wycofany z użycia, przeznaczony do pźniejszego wykorzystania
-static const uint8_t macPadXiao[] = {0x34, 0x85, 0x18, 0x9E, 0x87, 0xD4};            // Pad Seeduino Xiao ESP32 S3
-static const uint8_t macPlatformMecanum[] = {0xDC, 0xDA, 0x0C, 0x55, 0xD5, 0xB8};   //platforma mecanum z ESP32 S3 DEVKIT C-1 N8R2
-static const uint8_t macMonitorDebug[] = {0xA0, 0xB7, 0x65,0x4B, 0xC5, 0x30};        //ESP 32 NodeMCU Dev Kit C V2 mit CP2102
+// Rear Right Encoder
+constexpr int RR_ENCODER_A = 17;
+constexpr int RR_ENCODER_B = 18;
 
-// messages
-// Struktura wiadomości z pada
-typedef struct Message_from_Pad {
-    uint32_t timeStamp = 0;  // Heartbeat – bieżący czas (millis())
-    uint32_t messageSequenceNumber = 0; // Liczba wysłanych wiadomości
-    int16_t L_Joystick_x_message = 0;
-    int16_t L_Joystick_y_message = 0;
-    int16_t R_Joystick_x_message = 0;
-    int16_t R_Joystick_y_message = 0;
-    uint32_t L_Joystick_buttons_message = 0;
-    uint32_t R_Joystick_buttons_message = 0;
-    int16_t L_Joystick_raw_x = 0;
-    int16_t L_Joystick_raw_y = 0;
-    int16_t R_Joystick_raw_x = 0;
-    int16_t R_Joystick_raw_y = 0;
-} Message_from_Pad;
-
-// Struktura wiadomości z platformy mecanum
-typedef struct Message_from_Platform_Mecanum {
-    uint32_t timestamp = 0;  // Heartbeat – bieżący czas (millis())
-    uint32_t totalMessages = 0; // Liczba wysłanych wiadomości
-    // Prędkości kół w RPM
-    float frontLeftSpeedRPM = 0;
-    float frontRightSpeedRPM = 0;
-    float rearLeftSpeedRPM = 0;
-    float rearRightSpeedRPM = 0;
-    // Dane z enkoderow
-    int64_t frontLeftEncoder = 0;
-    int64_t frontRightEncoder = 0;
-    int64_t rearLeftEncoder = 0;
-    int64_t rearRightEncoder = 0;
-    // Kąty orientacji z IMU - do dalszej implementacji, na razie nie ma IMU
-    float pitch = 0;
-    float roll = 0;
-    float yaw = 0;
-    // Napięcie baterii - do dalszej implementacji, na razie nie ma pomiaru napięcia
-    float batteryVoltage;
-} Message_from_Platform_Mecanum;
-#endif // PARAMETERS_H
+// ===== Encoder and Motor Configuration =====
 
 
+constexpr int MAX_RPM = 180;             // Maximum motor speed
+
+// ===== Task Scheduling Rates (in milliseconds) =====
+
+constexpr int INTERVAL_MOTOR_CONTROL = 50;   // Interval for motor control task
+constexpr int INTERVAL_SENSOR_READ = 25;     // Interval for sensor read task
+constexpr int INTERVAL_DEBUG_OUTPUT = 35;    // Interval for debug/telemetry
+
+// ===== PID Control Constants =====
+
+constexpr float KP = 0.5f;
+constexpr float KI = 0.0f;
+constexpr float KD = 0.00f;
+constexpr float MAX_OUT = 511.0f;
+constexpr float MIN_OUT = -511.0f;
+
+// ===== Timing Constants =====
+constexpr TickType_t INTERVAL_1MS = pdMS_TO_TICKS(1);
+constexpr TickType_t INTERVAL_5MS = pdMS_TO_TICKS(5);
+constexpr TickType_t INTERVAL_10MS = pdMS_TO_TICKS(10);
+constexpr TickType_t INTERVAL_20MS = pdMS_TO_TICKS(20);
+constexpr TickType_t INTERVAL_50MS = pdMS_TO_TICKS(50);
+constexpr TickType_t INTERVAL_100MS = pdMS_TO_TICKS(100);
+
+// ===== ESP-NOW Configuration =====
+constexpr int ESP_CHANNEL = 0;  // ESP-NOW channel
+constexpr int ESP_MAX_DATA_SIZE = 250;  // Maximum data size for ESP-NOW
 
 
-
-
+// ===== Default Motor Configuration =====
+constexpr int DEFAULT_GEAR_RATIO = 960; // Gear ratio for the motors
+constexpr int DEFAULT_PWM_RESOLUTION = 9; // PWM resolution (9 bits)
+constexpr int DEFAULT_PWM_FREQUENCY = 20000; // PWM frequency (20 kHz)
