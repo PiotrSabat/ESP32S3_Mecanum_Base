@@ -5,6 +5,7 @@
 .pio/
 .pio/libdeps/
 include/
+.dev_notes/
 
 .vscode/
 .vscode/*.db
