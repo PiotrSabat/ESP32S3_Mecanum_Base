@@ -15,6 +15,7 @@ struct MotorConfig {
     int   pwmChannel2;    ///< Kanał LEDC dla pwmPin2
     int   encoderPinA;    ///< Pin A enkodera
     int   encoderPinB;    ///< Pin B enkodera
+    bool invertDirection;         ///< Kierunek obrotu silnika (true = odwrotny)
     float gearRatio;      ///< Przełożenie przekładni
     int   pwmResolution;  ///< Rozdzielczość PWM (liczba bitów)
     int   pwmFrequency;   ///< Częstotliwość PWM (Hz)
@@ -23,6 +24,10 @@ struct MotorConfig {
     float Kd;             ///< Wzmocnienie różniczkujące PID
     float outputMin;      ///< Minimalne wyjście regulatora (np. -maxPWM)
     float outputMax;      ///< Maksymalne wyjście regulatora (np. maxPWM)
+    // --- Parametry bezpieczeństwa ---
+    uint32_t softStopDurationMs;  ///< Czas trwania soft stopu (ms)
+    uint32_t hardStopDurationMs;  ///< Czas trwania hard stopu (ms)
+    
 };
 
 /**
@@ -41,6 +46,18 @@ struct MotorConfig {
  *      motorFL.update();           // co INTERVAL_MOTOR_CONTROL ms
  *      float rpm = motorFL.getCurrentRPM();
  */
+
+
+/**
+ * Stany pracy silnika — przydatne do obsługi zatrzymań awaryjnych.
+ */
+enum class MotorState {
+    Active,         ///< Normalna praca
+    SoftStopping,   ///< Trwa łagodne zatrzymanie (softStop)
+    HardStopped     ///< Zatrzymany natychmiastowo (hardStop)
+};
+
+
 class Motor {
 public:
     /**
@@ -70,11 +87,35 @@ public:
      * Zwraca ostatnio zmierzone RPM.
      */
     float getCurrentRPM() const;
+    
+    // Zwraca aktualnie ustawiony target RPM dla silnika.
+    float getTargetRPM() const;
+
 
     /**
      * Zwraca ostatnio obliczone wyjście regulatora (wartość PWM).
      */
     int getControlOutput() const;
+
+    //modyfikacja przygotowywująca do softStop i hardStop
+        /**
+     * Rozpoczyna łagodne zatrzymanie silnika (soft stop).
+     * Silnik zatrzymuje się stopniowo w określonym czasie,
+     * zmniejszając targetRPM aż do zera przy użyciu PID.
+     *
+     * @param durationMs  Czas trwania w ms
+     */
+    void softStop(uint32_t durationMs = 0);
+    /**
+     * Rozpoczyna natychmiastowe zatrzymanie silnika (hard stop).
+     * Silnik zatrzymuje się natychmiastowo (kilka milisekund).
+     */
+    void hardStop();
+
+   
+ 
+
+
 
 private:
     MotorConfig  _cfg;         ///< Parametry konfiguracyjne silnika
@@ -90,6 +131,17 @@ private:
 
     int64_t      _lastCount   = 0;      ///< Poprzedni odczyt enkodera
     uint32_t     _lastTimeMs  = 0;      ///< Poprzedni czas pomiaru
+
+
+    //modyfikacja przygotowywująca do softStop i hardStop
+    // Stan silnika
+    MotorState _state;
+
+    // Parametry softStop
+    uint32_t   _softStopStartMs;     ///< Czas rozpoczęcia softStop
+    uint32_t   _softStopDurationMs;  ///< Czas trwania softStop
+    float      _initialTargetRPM;    ///< TargetRPM przed softStop
+
 
     /**
      * Konfiguracja i uruchomienie PWM.

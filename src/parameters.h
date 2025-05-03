@@ -51,12 +51,19 @@ constexpr int RR_ENCODER_B = 18;
 
 
 constexpr int MAX_RPM = 180;             // Maximum motor speed
+// ===== Safety Parameters =====
+constexpr uint32_t DEFAULT_SOFT_STOP_DURATION_MS = 500;  // Czas domyślnego soft stopu (ms)
+constexpr uint32_t DEFAULT_HARD_STOP_DURATION_MS = 50;  // Czas domyślnego hard stopu (ms)
+
+
 
 // ===== Task Scheduling Rates (in milliseconds) =====
 
 constexpr int INTERVAL_MOTOR_CONTROL = 50;   // Interval for motor control task
 constexpr int INTERVAL_SENSOR_READ = 25;     // Interval for sensor read task
 constexpr int INTERVAL_DEBUG_OUTPUT = 35;    // Interval for debug/telemetry
+
+
 
 // ===== PID Control Constants =====
 

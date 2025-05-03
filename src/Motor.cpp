@@ -8,9 +8,18 @@ Motor::Motor(const MotorConfig& config)
 {
     setupPWM();
     setupEncoder();
+
+    // Czas i licznik enkodera na start
     _lastTimeMs = millis();
     _lastCount = _encoder.getCount();
+
+    // Inicjalizacja stanów awaryjnych
+    _state = MotorState::Active;
+    _softStopStartMs = 0;
+    _softStopDurationMs = 0;
+    _initialTargetRPM = 0.0f;
 }
+
 
 void Motor::setupPWM() {
     pinMode(_cfg.pwmPin1, OUTPUT);
@@ -27,13 +36,29 @@ void Motor::setupEncoder() {
 }
 
 void Motor::setTargetRPM(float rpm) {
-    _targetRPM = rpm;
+    _targetRPM = _cfg.invertDirection ? -rpm : rpm;
 }
 
+// modyfikacja metoddy update() i computePID() do softStop
 void Motor::update() {
     uint32_t now = millis();
     uint32_t dt = now - _lastTimeMs;
     if (dt == 0) return;
+
+    // Obsługa stanu SoftStopping
+    if (_state == MotorState::SoftStopping) {
+        uint32_t elapsedTime = now - _softStopStartMs;
+        
+        if (elapsedTime >= _softStopDurationMs) {
+            // Po upływie czasu softStop: zakończ
+            _state = MotorState::Active;
+            _targetRPM = 0.0f;  // Zatrzymaj, ale z wyzerowanym targetRPM
+        } else {
+            // Zmniejszamy targetRPM linearnie do zera
+            float targetDelta = (_initialTargetRPM / _softStopDurationMs) * elapsedTime;
+            _targetRPM = _initialTargetRPM - targetDelta;
+        }
+    }
 
     int64_t count = _encoder.getCount();
     int64_t deltaCount = count - _lastCount;
@@ -44,6 +69,7 @@ void Motor::update() {
 
     float error = _targetRPM - _currentRPM;
     float pidOut = computePID(error, dt);
+    
 
     // Ograniczenie sygnału PWM przy użyciu funkcji Arduino
     int pwmVal = static_cast<int>(pidOut);
@@ -64,6 +90,7 @@ void Motor::update() {
     _lastCount = count;
     _lastError = error;
 }
+
 
 float Motor::computePID(float error, float dt) {
     // Sumowanie całki
@@ -86,6 +113,31 @@ float Motor::getCurrentRPM() const {
     return _currentRPM;
 }
 
+// Zwraca aktualnie ustawiony target RPM dla silnika.
+float Motor::getTargetRPM() const {
+    return _targetRPM;
+}
+
+
 int Motor::getControlOutput() const {
     return _controlOut;
 }
+
+//modyfikacja przygotowywująca do softStop i hardStop
+void Motor::softStop(uint32_t durationMs) {
+    if (_state != MotorState::Active)
+        return; // ignorujemy jeśli już w trybie stopu
+
+    _state = MotorState::SoftStopping;
+    _softStopStartMs = millis();
+    _softStopDurationMs = (durationMs > 0) ? durationMs : _cfg.softStopDurationMs;
+    _initialTargetRPM = _targetRPM;
+}
+
+void Motor::hardStop() {
+    softStop(_cfg.hardStopDurationMs); //szybkie zatrzymanie wykorzystujące softStop
+}
+
+
+
+

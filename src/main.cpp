@@ -1,80 +1,93 @@
 #include <Arduino.h>
 #include "Motor.h"
-#include "parameters.h"   // piny, PID, PWM itp.
-#include "motor_config.h" // konfiguracja silników
+#include "motor_config.h"
+#include "MecanumDrive.h"
+#include "RPMData.h"
 
+Motor motorFL(FL_CONFIG);
+Motor motorFR(FR_CONFIG);
+Motor motorRL(RL_CONFIG);
+Motor motorRR(RR_CONFIG);
 
+MecanumDrive drive(&motorFL, &motorFR, &motorRL, &motorRR);
 
-// --- Tworzymy obiekty silników ---
-static Motor motorFL(FL_CONFIG);
-static Motor motorFR(FR_CONFIG);
-static Motor motorRL(RL_CONFIG);
-static Motor motorRR(RR_CONFIG);
+unsigned long lastActionTime = 0;
+int state = 0;
+const int interval = 2000; // ms
 
 void setup() {
-    Serial.begin(115200);
-    while (!Serial) { }
-    Serial.println("Start testu 4 silników");
+  Serial.begin(115200);
+  delay(2000);
+  Serial.println("\n✅ Start platform test with MecanumDrive");
 }
 
 void loop() {
-    // Przykładowy test: ustawiamy na wszystkich +100 RPM, później -100 RPM
-    const float testRPM = 5.0f;
+  unsigned long now = millis();
 
-    // 1) Forward
-    Serial.println("\n--- Wszystkie silniki: forward 100 RPM ---");
-    motorFL.setTargetRPM( testRPM );
-    motorFR.setTargetRPM( -testRPM );
-    motorRL.setTargetRPM( testRPM );
-    motorRR.setTargetRPM( -testRPM );
+  // co interval milisekund przechodzimy do kolejnego kroku testu
+  if (now - lastActionTime > interval) {
+    lastActionTime = now;
+    state++;
 
-    for (uint32_t t=millis(); millis()-t < 2000; ) {
-        motorFL.update();  motorFR.update();
-        motorRL.update();  motorRR.update();
+    Serial.printf("\n▶️ State %d\n", state);
 
-        Serial.printf("FL: RPM=%.1f PWM=%d | FR: RPM=%.1f PWM=%d\n",
-                      motorFL.getCurrentRPM(), motorFL.getControlOutput(),
-                      motorFR.getCurrentRPM(), motorFR.getControlOutput());
-        Serial.printf("RL: RPM=%.1f PWM=%d | RR: RPM=%.1f PWM=%d\n",
-                      motorRL.getCurrentRPM(), motorRL.getControlOutput(),
-                      motorRR.getCurrentRPM(), motorRR.getControlOutput());
-        delay(INTERVAL_MOTOR_CONTROL);
+    switch (state) {
+      case 1:
+        Serial.println("Jazda do przodu");
+        drive.drive(0, 100, 0);
+        break;
+      case 2:
+        Serial.println("Hard stop po jeździe do przodu");
+        drive.hardStop();
+        break;
+      case 3:
+        Serial.println("Jazda do tyłu");
+        drive.drive(0, -100, 0);
+        break;
+      case 4:
+        Serial.println("Hard stop po jeździe do tyłu");
+        drive.hardStop();
+        break;
+      case 5:
+        Serial.println("Jazda w lewo (w bok)");
+        drive.drive(-100, 0, 0);
+        break;
+      case 6:
+        Serial.println("Hard stop po jeździe w lewo");
+        drive.hardStop();
+        break;
+      case 7:
+        Serial.println("Jazda w prawo (w bok)");
+        drive.drive(100, 0, 0);
+        break;
+      case 8:
+        Serial.println("Hard stop po jeździe w prawo");
+        drive.hardStop();
+        break;
+      case 9:
+        Serial.println("Obrót CW");
+        drive.drive(0, 0, -100);
+        break;
+      case 10:
+        Serial.println("Hard stop po obrocie CW");
+        drive.hardStop();
+        break;
+      case 11:
+        Serial.println("Obrót CCW");
+        drive.drive(0, 0, 100);
+        break;
+      case 12:
+        Serial.println("Hard stop po obrocie CCW");
+        drive.hardStop();
+        break;
+      default:
+        Serial.println("🛑 Test zakończony — zatrzymanie platformy");
+        drive.hardStop();
+        while (true) delay(1000);
     }
+  }
 
-    // 2) Backward
-    Serial.println("\n--- Wszystkie silniki: backward 100 RPM ---");
-    motorFL.setTargetRPM( -testRPM );
-    motorFR.setTargetRPM( testRPM );
-    motorRL.setTargetRPM( -testRPM );
-    motorRR.setTargetRPM( testRPM );
-
-    for (uint32_t t=millis(); millis()-t < 2000; ) {
-        motorFL.update();  motorFR.update();
-        motorRL.update();  motorRR.update();
-
-        Serial.printf("FL: RPM=%.1f PWM=%d | FR: RPM=%.1f PWM=%d\n",
-                      motorFL.getCurrentRPM(), motorFL.getControlOutput(),
-                      motorFR.getCurrentRPM(), motorFR.getControlOutput());
-        Serial.printf("RL: RPM=%.1f PWM=%d | RR: RPM=%.1f PWM=%d\n",
-                      motorRL.getCurrentRPM(), motorRL.getControlOutput(),
-                      motorRR.getCurrentRPM(), motorRR.getControlOutput());
-        delay(INTERVAL_MOTOR_CONTROL);
-    }
-
-    // 3) Stop
-    Serial.println("\n--- Stop ---");
-    motorFL.setTargetRPM( 0.0f );
-    motorFR.setTargetRPM( 0.0f );
-    motorRL.setTargetRPM( 0.0f );
-    motorRR.setTargetRPM( 0.0f );
-
-    for (uint32_t t=millis(); millis()-t < 2000; ) {
-        motorFL.update();  motorFR.update();
-        motorRL.update();  motorRR.update();
-
-        // wystarczy co kilka iteracji
-        delay(INTERVAL_MOTOR_CONTROL);
-    }
-
-    // powtórz sekwencję
+  // aktualizacja PID w każdej pętli
+  drive.update();
+  delay(20);
 }
