@@ -18,6 +18,13 @@ Motor::Motor(const MotorConfig& config)
     _softStopStartMs = 0;
     _softStopDurationMs = 0;
     _initialTargetRPM = 0.0f;
+
+    // Inicjalizacja PID, rowniez po to, by moc zdalnie zmieniac PID w locie
+    _Kp = _cfg.Kp;
+    _Ki = _cfg.Ki;
+    _Kd = _cfg.Kd;
+    _outputMin = _cfg.outputMin;
+    _outputMax = _cfg.outputMax;
 }
 
 
@@ -136,6 +143,34 @@ void Motor::softStop(uint32_t durationMs) {
 
 void Motor::hardStop() {
     softStop(_cfg.hardStopDurationMs); //szybkie zatrzymanie wykorzystujące softStop
+}
+
+//metod do zmiany PID
+void Motor::setPID(float Kp, float Ki, float Kd) {
+    _Kp = Kp;
+    _Ki = Ki;
+    _Kd = Kd;
+}
+
+void Motor::setOutputLimits(int min, int max) {
+    _outputMin = min;
+    _outputMax = max;
+}
+
+float Motor::getKp() const {
+    return _Kp;
+}
+float Motor::getKi() const {
+    return _Ki;
+}
+float Motor::getKd() const {
+    return _Kd;
+}
+int Motor::getOutputMin() const {
+    return _outputMin;
+}
+int Motor::getOutputMax() const {
+    return _outputMax;
 }
 
 

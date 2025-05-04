@@ -1,5 +1,4 @@
-#ifndef MESSAGES_H
-#define MESSAGES_H
+#pragma once
 #include <Arduino.h>
 // ===== Data Message Structures =====
 
@@ -49,4 +48,12 @@ typedef struct Message_from_Platform_Mecanum {
     float taskTime = 0.0f;             // Time taken for task execution
 } Message_from_Platform_Mecanum;
 
-#endif // MESSAGES_H
+// wiadomość z Monitora debugującego
+#define MSG_SET_PID 1
+
+typedef struct __attribute__((packed)) {
+    uint8_t type;  // np. MSG_SET_PID
+    float Kp;
+    float Ki;
+    float Kd;
+} Message_from_Monitor;

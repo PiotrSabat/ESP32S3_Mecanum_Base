@@ -11,8 +11,17 @@
 
 // Struktura odbierana z pada
 static Message_from_Pad myData_from_Pad;
+
+// Nowa struktura dla przychodzących danych z monitora
+Message_from_Monitor receivedMonitorData;
+
 // Mutex chroniący dostęp do danych
 static SemaphoreHandle_t movementMutex;
+
+// Mutex chroniący dostęp do danych z monitora
+SemaphoreHandle_t monitorMutex;
+
+
 // Licznik wiadomości wysłanych w debugu
 static int32_t totalMessages = 0;
 //Średni czas tasku do debugowania
@@ -33,11 +42,17 @@ static esp_now_peer_info_t peerDebugMonitor;
 
 // Callback ESP-NOW
 void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
-    if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
-        if (len == sizeof(Message_from_Pad)) {
+    if (len == sizeof(Message_from_Pad)) {
+        if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
             memcpy(&myData_from_Pad, incomingData, sizeof(Message_from_Pad));
+            xSemaphoreGive(movementMutex);
         }
-        xSemaphoreGive(movementMutex);
+    }
+    else if (len == sizeof(Message_from_Monitor)) {
+        if (xSemaphoreTake(monitorMutex, portMAX_DELAY) == pdTRUE) {
+            memcpy(&receivedMonitorData, incomingData, sizeof(Message_from_Monitor));
+            xSemaphoreGive(monitorMutex);
+        }
     }
 }
 
@@ -122,6 +137,38 @@ void debugTask(void* parameter) {
     }
 }
 
+void monitorUpdateTask(void* parameter) {
+  while (1) {
+    if (xSemaphoreTake(monitorMutex, portMAX_DELAY) == pdTRUE) {
+      switch (receivedMonitorData.type) {
+        case MSG_SET_PID:
+          frontLeftMotor.setPID(receivedMonitorData.Kp, receivedMonitorData.Ki, receivedMonitorData.Kd);
+          frontRightMotor.setPID(receivedMonitorData.Kp, receivedMonitorData.Ki, receivedMonitorData.Kd);
+          rearLeftMotor.setPID(receivedMonitorData.Kp, receivedMonitorData.Ki, receivedMonitorData.Kd);
+          rearRightMotor.setPID(receivedMonitorData.Kp, receivedMonitorData.Ki, receivedMonitorData.Kd);
+          Serial.printf("✅ PID updated: Kp=%.3f Ki=%.3f Kd=%.3f\n", 
+                        receivedMonitorData.Kp, receivedMonitorData.Ki, receivedMonitorData.Kd);
+          // Resetujemy typ wiadomości, by nie stosować tego samego pakietu wielokrotnie
+          receivedMonitorData.type = 0;
+          break;
+
+        // case MSG_SOFT_STOP:
+        // case MSG_RESET_ENCODERS:
+        // itd. – przyszłe rozszerzenia
+
+        default:
+          break;
+      }
+      xSemaphoreGive(monitorMutex);
+    }
+
+    vTaskDelay(300 / portTICK_PERIOD_MS);  // Możesz dostosować interwał
+  }
+}
+
+
+
+
 void setup() {
     Serial.begin(115200);
     WiFi.mode(WIFI_STA);
@@ -144,16 +191,23 @@ void setup() {
     peerDebugMonitor.encrypt = false;
     esp_now_add_peer(&peerDebugMonitor);
 
-    // Mutex
+    // Mutexy
     movementMutex = xSemaphoreCreateMutex();
     if (!movementMutex) {
-        Serial.println("❌ Nie udało się utworzyć mutexu");
+        Serial.println("❌ Nie udało się utworzyć mutexu do ruchu");
         while (1) vTaskDelay(100);
     }
-
+    
+    monitorMutex = xSemaphoreCreateMutex();
+    if (!monitorMutex) {
+        Serial.println("❌ Nie udało się utworzyć mutexu do monitora");
+        while (1) vTaskDelay(100);
+    }
     // Zadania FreeRTOS
     xTaskCreatePinnedToCore(motorControlTask, "MotorCtrlTask", 4096, nullptr, 1, nullptr, 1);
     xTaskCreatePinnedToCore(debugTask,        "DebugTask",      4096, nullptr, 1, nullptr, 1);
+    xTaskCreatePinnedToCore(monitorUpdateTask, "MonitorUpdate", 2048, NULL, 1, NULL, 1);
+
 
     Serial.println("✅ System ready");
 }

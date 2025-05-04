@@ -112,6 +112,27 @@ public:
      */
     void hardStop();
 
+    //metody do zmiany PID w trakcie pracy
+    /**
+     * Ustawia nowe wartości PID.
+     * @param Kp  Wzmocnienie proporcjonalne
+     * @param Ki  Wzmocnienie całkujące
+     * @param Kd  Wzmocnienie różniczkujące
+     */
+    void setPID(float Kp, float Ki, float Kd);
+    void setOutputLimits(int min, int max);
+
+    //metody do odczytania wartosci PID
+    /**
+     * Zwraca aktualne wartości PID.
+     * @return  Struktura z wartościami PID
+     */
+    float getKp() const;
+    float getKi() const;
+    float getKd() const;
+    int getOutputMin() const;
+    int getOutputMax() const;
+
    
  
 
@@ -142,6 +163,13 @@ private:
     uint32_t   _softStopDurationMs;  ///< Czas trwania softStop
     float      _initialTargetRPM;    ///< TargetRPM przed softStop
 
+    //parametry do zmiany PID
+    float      _Kp;                 ///< Wzmocnienie proporcjonalne PID
+    float      _Ki;                 ///< Wzmocnienie całkujące PID
+    float      _Kd;                 ///< Wzmocnienie różniczkujące PID
+    float      _outputMin;          ///< Minimalne wyjście regulatora (np. -maxPWM)
+    float      _outputMax;          ///< Maksymalne wyjście regulatora (np. maxPWM)
+
 
     /**
      * Konfiguracja i uruchomienie PWM.
@@ -160,4 +188,7 @@ private:
      * @return       Wartość wyjściowa regulatora (PWM)
      */
     float computePID(float error, float dt);
+
+    
+    
 };
