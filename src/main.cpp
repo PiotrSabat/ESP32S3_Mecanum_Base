@@ -15,6 +15,8 @@ static Message_from_Pad myData_from_Pad;
 static SemaphoreHandle_t movementMutex;
 // Licznik wiadomości wysłanych w debugu
 static int32_t totalMessages = 0;
+//Średni czas tasku do debugowania
+static float motorCtrlAvgTime = 0.0f;  // w µs
 
 // Obiekty silników
 static Motor frontLeftMotor(FL_CONFIG);
@@ -26,8 +28,8 @@ static Motor rearRightMotor(RR_CONFIG);
 static MecanumDrive drive(&frontLeftMotor, &frontRightMotor, &rearLeftMotor, &rearRightMotor);
 
 // Peer info dla ESP-NOW
-static esp_now_peer_info_t peerInfo;
-static esp_now_peer_info_t peerInfoMonitor;
+static esp_now_peer_info_t peerPad;
+static esp_now_peer_info_t peerDebugMonitor;
 
 // Callback ESP-NOW
 void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
@@ -39,9 +41,52 @@ void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
     }
 }
 
-// Zadanie wysyłające dane debugowe przez ESP-NOW
-void espNowTask(void* parameter) {
+
+// Zadanie sterowania silnikami
+void motorControlTask(void* parameter) {
+    //-----------dane do debugowania: czas wykonania tasku, do wykasowania w przyszłości
+    static uint64_t sumTime = 0;
+    static uint32_t count   = 0;
+    //-----------koniec deklaracji zmiennych debugowania
+
+
+    int16_t x, y, yaw;
     for (;;) {
+        //-----------debugowanie: czas wykonania tasku
+        uint64_t start = esp_timer_get_time();  // ✱ początek pomiaru
+        //--------------koniec debugowania
+        
+        // Odczyt danych z pada
+
+
+        if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
+            x   = myData_from_Pad.L_Joystick_x_message;
+            y   = myData_from_Pad.L_Joystick_y_message;
+            yaw = myData_from_Pad.R_Joystick_x_message;
+            xSemaphoreGive(movementMutex);
+        }
+        // Kinematyka Mecanum
+        drive.drive((float)x, (float)y, (float)yaw);
+        // Aktualizacja pętli PID
+        drive.update();
+
+        //--------------debugowanie: czas wykonania tasku
+
+        uint64_t duration = esp_timer_get_time() - start;  // ✱ koniec pomiaru
+        sumTime += duration;
+        count++;
+        motorCtrlAvgTime = (float)sumTime / (float)count;  // średnia
+        //--------------koniec debugowania
+
+
+        vTaskDelay(pdMS_TO_TICKS(INTERVAL_MOTOR_CONTROL));
+    }
+}
+
+// Zadanie debugowe – wypis prędkości i wysyłanie ich przez ESP-NOW
+// Wysyła również licznik wiadomości
+void debugTask(void* parameter) {
+     for (;;) {
         Message_from_Platform_Mecanum debugMsg;
         if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
             debugMsg.timestamp = millis();
@@ -65,56 +110,14 @@ void espNowTask(void* parameter) {
             debugMsg.yaw   = 0;
             debugMsg.batteryVoltage = 0;
 
+            // Czas wykonania tasku - debugownie do wykasowania w przyszlosci
+            debugMsg.taskTime = motorCtrlAvgTime / 1000.0f;  // w ms
+
             xSemaphoreGive(movementMutex);
         }
         // Wysyłka
         esp_err_t res = esp_now_send(macMonitorDebug, reinterpret_cast<const uint8_t*>(&debugMsg), sizeof(debugMsg));
         if (res == ESP_OK) totalMessages++;
-        vTaskDelay(pdMS_TO_TICKS(INTERVAL_DEBUG_OUTPUT));
-    }
-}
-
-// Zadanie sterowania silnikami
-void motorControlTask(void* parameter) {
-    int16_t x, y, yaw;
-    for (;;) {
-        if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
-            x   = myData_from_Pad.L_Joystick_x_message;
-            y   = myData_from_Pad.L_Joystick_y_message;
-            yaw = myData_from_Pad.R_Joystick_x_message;
-            xSemaphoreGive(movementMutex);
-        }
-        // Kinematyka Mecanum
-        drive.drive((float)x, (float)y, (float)yaw);
-        // Aktualizacja pętli PID
-        drive.update();
-        vTaskDelay(pdMS_TO_TICKS(INTERVAL_MOTOR_CONTROL));
-    }
-}
-
-// Zadanie debugowe – wypis prędkości
-void debugTask(void* parameter) {
-    for (;;) {
-        if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
-            // Odczyt prędkości rzeczywistej
-            float rpmFL = frontLeftMotor.getCurrentRPM();
-            float rpmFR = frontRightMotor.getCurrentRPM();
-            float rpmRL = rearLeftMotor.getCurrentRPM();
-            float rpmRR = rearRightMotor.getCurrentRPM();
-            // Prędkości zadane
-            RPMData target = drive.readRPMs();
-            xSemaphoreGive(movementMutex);
-
-            // Czyszczenie terminala
-            Serial.write("\033[2J");
-            Serial.write("\033[H");
-            Serial.println("----- TARGET RPM -----");
-            Serial.printf("FL: %.1f\tFR: %.1f\tRL: %.1f\tRR: %.1f\n",
-                          target.frontLeft, target.frontRight, target.rearLeft, target.rearRight);
-            Serial.println("----- ACTUAL RPM -----");
-            Serial.printf("FL: %.1f\tFR: %.1f\tRL: %.1f\tRR: %.1f\n",
-                          rpmFL, rpmFR, rpmRL, rpmRR);
-        }
         vTaskDelay(pdMS_TO_TICKS(INTERVAL_DEBUG_OUTPUT));
     }
 }
@@ -131,15 +134,15 @@ void setup() {
     esp_now_register_recv_cb(OnDataRecv);
 
     // Dodanie peerów
-    memcpy(peerInfo.peer_addr, macPadXiao, 6);
-    peerInfo.channel = ESP_CHANNEL;
-    peerInfo.encrypt = false;
-    esp_now_add_peer(&peerInfo);
+    memcpy(peerPad.peer_addr, macPadXiao, 6);
+    peerPad.channel = ESP_CHANNEL;
+    peerPad.encrypt = false;
+    esp_now_add_peer(&peerPad);
 
-    memcpy(peerInfoMonitor.peer_addr, macMonitorDebug, 6);
-    peerInfoMonitor.channel = ESP_CHANNEL;
-    peerInfoMonitor.encrypt = false;
-    esp_now_add_peer(&peerInfoMonitor);
+    memcpy(peerDebugMonitor.peer_addr, macMonitorDebug, 6);
+    peerDebugMonitor.channel = ESP_CHANNEL;
+    peerDebugMonitor.encrypt = false;
+    esp_now_add_peer(&peerDebugMonitor);
 
     // Mutex
     movementMutex = xSemaphoreCreateMutex();
@@ -149,8 +152,7 @@ void setup() {
     }
 
     // Zadania FreeRTOS
-    xTaskCreatePinnedToCore(espNowTask,       "ESPNowTask",     4096, nullptr, 1, nullptr, 0);
-    xTaskCreatePinnedToCore(motorControlTask, "MotorCtrlTask", 4096, nullptr, 2, nullptr, 1);
+    xTaskCreatePinnedToCore(motorControlTask, "MotorCtrlTask", 4096, nullptr, 1, nullptr, 1);
     xTaskCreatePinnedToCore(debugTask,        "DebugTask",      4096, nullptr, 1, nullptr, 1);
 
     Serial.println("✅ System ready");

@@ -59,9 +59,9 @@ constexpr uint32_t DEFAULT_HARD_STOP_DURATION_MS = 50;  // Czas domyślnego hard
 
 // ===== Task Scheduling Rates (in milliseconds) =====
 
-constexpr int INTERVAL_MOTOR_CONTROL = 50;   // Interval for motor control task
+constexpr int INTERVAL_MOTOR_CONTROL = 20;   // Interval for motor control task
 constexpr int INTERVAL_SENSOR_READ = 25;     // Interval for sensor read task
-constexpr int INTERVAL_DEBUG_OUTPUT = 35;    // Interval for debug/telemetry
+constexpr int INTERVAL_DEBUG_OUTPUT = 50;    // Interval for debug/telemetry
 
 
 

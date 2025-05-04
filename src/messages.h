@@ -44,6 +44,9 @@ typedef struct Message_from_Platform_Mecanum {
     float roll = 0;                    // IMU roll angle (future use)
     float yaw = 0;                     // IMU yaw angle (future use)
     float batteryVoltage = 0;          // Battery voltage reading (future use)
+
+    //another information for debugging
+    float taskTime = 0.0f;             // Time taken for task execution
 } Message_from_Platform_Mecanum;
 
 #endif // MESSAGES_H
