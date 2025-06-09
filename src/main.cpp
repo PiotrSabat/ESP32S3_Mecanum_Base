@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <esp_now.h>
 #include <WiFi.h>
+#include <SPI.h>
 
 #include "parameters.h"
 #include "motor_config.h"
@@ -9,46 +10,69 @@
 #include "messages.h"
 #include "mac_addresses_private.h"
 
-// Struktura odbierana z pada
+// ================= ESP-NOW =================
 static Message_from_Pad myData_from_Pad;
+static Message_from_Monitor receivedMonitorData;
 
-// Nowa struktura dla przychodzących danych z monitora
-Message_from_Monitor receivedMonitorData;
-
-// Mutex chroniący dostęp do danych
-static SemaphoreHandle_t movementMutex;
-
-// Mutex chroniący dostęp do danych z monitora
+SemaphoreHandle_t movementMutex;
 SemaphoreHandle_t monitorMutex;
 
-
-// Licznik wiadomości wysłanych w debugu
 static int32_t totalMessages = 0;
-//Średni czas tasku do debugowania
-static float motorCtrlAvgTime = 0.0f;  // w µs
+static float motorCtrlAvgTime = 0.0f;
 
-// Obiekty silników
-static Motor frontLeftMotor(FL_CONFIG);
-static Motor frontRightMotor(FR_CONFIG);
-static Motor rearLeftMotor(RL_CONFIG);
-static Motor rearRightMotor(RR_CONFIG);
+// ================= Silniki =================
+Motor frontLeftMotor(FL_CONFIG);
+Motor frontRightMotor(FR_CONFIG);
+Motor rearLeftMotor(RL_CONFIG);
+Motor rearRightMotor(RR_CONFIG);
+MecanumDrive drive(&frontLeftMotor, &frontRightMotor, &rearLeftMotor, &rearRightMotor);
 
-// Kontroler Mecanum – odpowiada za kierunek i rozdział prędkości
-static MecanumDrive drive(&frontLeftMotor, &frontRightMotor, &rearLeftMotor, &rearRightMotor);
+// ================= SPI (Arduino) =================
+#define PIN_CS   21
+#define PIN_MOSI 47
+#define PIN_MISO 48
+#define PIN_SCLK 45
 
-// Peer info dla ESP-NOW
-static esp_now_peer_info_t peerPad;
-static esp_now_peer_info_t peerDebugMonitor;
+void init_spi_master() {
+    SPI.begin(PIN_SCLK, PIN_MISO, PIN_MOSI); // SCLK, MISO, MOSI
+    pinMode(PIN_CS, OUTPUT);
+    digitalWrite(PIN_CS, HIGH);  // CS idle high
+    Serial.println("✅ SPI (Arduino-style) initialized");
+}
 
-// Callback ESP-NOW
+void spiReceiveTask(void* parameter) {
+    uint8_t recvBuf[12];  // 3x float
+    float pidKp, pidKi, pidKd;
+
+    while (true) {
+        digitalWrite(PIN_CS, LOW);
+        for (int i = 0; i < 12; i++) {
+            recvBuf[i] = SPI.transfer(0x00);
+        }
+        digitalWrite(PIN_CS, HIGH);
+
+        memcpy(&pidKp, &recvBuf[0], sizeof(float));
+        memcpy(&pidKi, &recvBuf[4], sizeof(float));
+        memcpy(&pidKd, &recvBuf[8], sizeof(float));
+
+        frontLeftMotor.setPID(pidKp, pidKi, pidKd);
+        frontRightMotor.setPID(pidKp, pidKi, pidKd);
+        rearLeftMotor.setPID(pidKp, pidKi, pidKd);
+        rearRightMotor.setPID(pidKp, pidKi, pidKd);
+
+        Serial.printf("🎯 PID from SPI: Kp=%.3f Ki=%.3f Kd=%.3f\n", pidKp, pidKi, pidKd);
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+}
+
+// ================= CALLBACK =================
 void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
     if (len == sizeof(Message_from_Pad)) {
         if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
             memcpy(&myData_from_Pad, incomingData, sizeof(Message_from_Pad));
             xSemaphoreGive(movementMutex);
         }
-    }
-    else if (len == sizeof(Message_from_Monitor)) {
+    } else if (len == sizeof(Message_from_Monitor)) {
         if (xSemaphoreTake(monitorMutex, portMAX_DELAY) == pdTRUE) {
             memcpy(&receivedMonitorData, incomingData, sizeof(Message_from_Monitor));
             xSemaphoreGive(monitorMutex);
@@ -56,119 +80,92 @@ void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
     }
 }
 
-
-// Zadanie sterowania silnikami
+// ================= TASKI =================
 void motorControlTask(void* parameter) {
-    //-----------dane do debugowania: czas wykonania tasku, do wykasowania w przyszłości
     static uint64_t sumTime = 0;
-    static uint32_t count   = 0;
-    //-----------koniec deklaracji zmiennych debugowania
-
+    static uint32_t count = 0;
 
     int16_t x, y, yaw;
-    for (;;) {
-        //-----------debugowanie: czas wykonania tasku
-        uint64_t start = esp_timer_get_time();  // ✱ początek pomiaru
-        //--------------koniec debugowania
-        
-        // Odczyt danych z pada
 
+    for (;;) {
+        uint64_t start = esp_timer_get_time();
 
         if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
-            x   = myData_from_Pad.L_Joystick_x_message;
-            y   = myData_from_Pad.L_Joystick_y_message;
+            x = myData_from_Pad.L_Joystick_x_message;
+            y = myData_from_Pad.L_Joystick_y_message;
             yaw = myData_from_Pad.R_Joystick_x_message;
             xSemaphoreGive(movementMutex);
         }
-        // Kinematyka Mecanum
+
         drive.drive((float)x, (float)y, (float)yaw);
-        // Aktualizacja pętli PID
         drive.update();
 
-        //--------------debugowanie: czas wykonania tasku
-
-        uint64_t duration = esp_timer_get_time() - start;  // ✱ koniec pomiaru
+        uint64_t duration = esp_timer_get_time() - start;
         sumTime += duration;
         count++;
-        motorCtrlAvgTime = (float)sumTime / (float)count;  // średnia
-        //--------------koniec debugowania
-
+        motorCtrlAvgTime = (float)sumTime / (float)count;
 
         vTaskDelay(pdMS_TO_TICKS(INTERVAL_MOTOR_CONTROL));
     }
 }
 
-// Zadanie debugowe – wypis prędkości i wysyłanie ich przez ESP-NOW
-// Wysyła również licznik wiadomości
 void debugTask(void* parameter) {
-     for (;;) {
+    for (;;) {
         Message_from_Platform_Mecanum debugMsg;
+
         if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
             debugMsg.timestamp = millis();
             debugMsg.totalMessages = totalMessages;
 
-            // Prędkości zadane
             RPMData target = drive.readRPMs();
-            debugMsg.frontLeftSpeedRPM  = target.frontLeft;
+            debugMsg.frontLeftSpeedRPM = target.frontLeft;
             debugMsg.frontRightSpeedRPM = target.frontRight;
-            debugMsg.rearLeftSpeedRPM   = target.rearLeft;
-            debugMsg.rearRightSpeedRPM  = target.rearRight;
+            debugMsg.rearLeftSpeedRPM = target.rearLeft;
+            debugMsg.rearRightSpeedRPM = target.rearRight;
 
-            // Brak surowych liczników – zostawiamy zero
-            debugMsg.frontLeftEncoder  = 0;
+            debugMsg.frontLeftEncoder = 0;
             debugMsg.frontRightEncoder = 0;
-            debugMsg.rearLeftEncoder   = 0;
-            debugMsg.rearRightEncoder  = 0;
+            debugMsg.rearLeftEncoder = 0;
+            debugMsg.rearRightEncoder = 0;
 
             debugMsg.pitch = 0;
-            debugMsg.roll  = 0;
-            debugMsg.yaw   = 0;
+            debugMsg.roll = 0;
+            debugMsg.yaw = 0;
             debugMsg.batteryVoltage = 0;
 
-            // Czas wykonania tasku - debugownie do wykasowania w przyszlosci
-            debugMsg.taskTime = motorCtrlAvgTime / 1000.0f;  // w ms
+            debugMsg.taskTime = motorCtrlAvgTime / 1000.0f;
 
             xSemaphoreGive(movementMutex);
         }
-        // Wysyłka
+
         esp_err_t res = esp_now_send(macMonitorDebug, reinterpret_cast<const uint8_t*>(&debugMsg), sizeof(debugMsg));
         if (res == ESP_OK) totalMessages++;
+
         vTaskDelay(pdMS_TO_TICKS(INTERVAL_DEBUG_OUTPUT));
     }
 }
 
 void monitorUpdateTask(void* parameter) {
-  while (1) {
-    if (xSemaphoreTake(monitorMutex, portMAX_DELAY) == pdTRUE) {
-      switch (receivedMonitorData.type) {
-        case MSG_SET_PID:
-          frontLeftMotor.setPID(receivedMonitorData.Kp, receivedMonitorData.Ki, receivedMonitorData.Kd);
-          frontRightMotor.setPID(receivedMonitorData.Kp, receivedMonitorData.Ki, receivedMonitorData.Kd);
-          rearLeftMotor.setPID(receivedMonitorData.Kp, receivedMonitorData.Ki, receivedMonitorData.Kd);
-          rearRightMotor.setPID(receivedMonitorData.Kp, receivedMonitorData.Ki, receivedMonitorData.Kd);
-          Serial.printf("✅ PID updated: Kp=%.3f Ki=%.3f Kd=%.3f\n", 
-                        receivedMonitorData.Kp, receivedMonitorData.Ki, receivedMonitorData.Kd);
-          // Resetujemy typ wiadomości, by nie stosować tego samego pakietu wielokrotnie
-          receivedMonitorData.type = 0;
-          break;
+    while (1) {
+        if (xSemaphoreTake(monitorMutex, portMAX_DELAY) == pdTRUE) {
+            if (receivedMonitorData.type == MSG_SET_PID) {
+                frontLeftMotor.setPID(receivedMonitorData.Kp, receivedMonitorData.Ki, receivedMonitorData.Kd);
+                frontRightMotor.setPID(receivedMonitorData.Kp, receivedMonitorData.Ki, receivedMonitorData.Kd);
+                rearLeftMotor.setPID(receivedMonitorData.Kp, receivedMonitorData.Ki, receivedMonitorData.Kd);
+                rearRightMotor.setPID(receivedMonitorData.Kp, receivedMonitorData.Ki, receivedMonitorData.Kd);
 
-        // case MSG_SOFT_STOP:
-        // case MSG_RESET_ENCODERS:
-        // itd. – przyszłe rozszerzenia
+                Serial.printf("✅ PID updated from MONITOR: Kp=%.3f Ki=%.3f Kd=%.3f\n",
+                              receivedMonitorData.Kp, receivedMonitorData.Ki, receivedMonitorData.Kd);
+                receivedMonitorData.type = 0;
+            }
+            xSemaphoreGive(monitorMutex);
+        }
 
-        default:
-          break;
-      }
-      xSemaphoreGive(monitorMutex);
+        vTaskDelay(pdMS_TO_TICKS(300));
     }
-
-    vTaskDelay(300 / portTICK_PERIOD_MS);  // Możesz dostosować interwał
-  }
 }
 
-
-
-
+// ================= SETUP + LOOP =================
 void setup() {
     Serial.begin(115200);
     WiFi.mode(WIFI_STA);
@@ -178,40 +175,34 @@ void setup() {
         Serial.println("❌ ESP-NOW init failed");
         return;
     }
+
     esp_now_register_recv_cb(OnDataRecv);
 
-    // Dodanie peerów
+    esp_now_peer_info_t peerPad = {};
     memcpy(peerPad.peer_addr, macPadXiao, 6);
     peerPad.channel = ESP_CHANNEL;
     peerPad.encrypt = false;
     esp_now_add_peer(&peerPad);
 
-    memcpy(peerDebugMonitor.peer_addr, macMonitorDebug, 6);
-    peerDebugMonitor.channel = ESP_CHANNEL;
-    peerDebugMonitor.encrypt = false;
-    esp_now_add_peer(&peerDebugMonitor);
+    esp_now_peer_info_t peerDebug = {};
+    memcpy(peerDebug.peer_addr, macMonitorDebug, 6);
+    peerDebug.channel = ESP_CHANNEL;
+    peerDebug.encrypt = false;
+    esp_now_add_peer(&peerDebug);
 
-    // Mutexy
     movementMutex = xSemaphoreCreateMutex();
-    if (!movementMutex) {
-        Serial.println("❌ Nie udało się utworzyć mutexu do ruchu");
-        while (1) vTaskDelay(100);
-    }
-    
     monitorMutex = xSemaphoreCreateMutex();
-    if (!monitorMutex) {
-        Serial.println("❌ Nie udało się utworzyć mutexu do monitora");
-        while (1) vTaskDelay(100);
-    }
-    // Zadania FreeRTOS
-    xTaskCreatePinnedToCore(motorControlTask, "MotorCtrlTask", 4096, nullptr, 1, nullptr, 1);
-    xTaskCreatePinnedToCore(debugTask,        "DebugTask",      4096, nullptr, 1, nullptr, 1);
-    xTaskCreatePinnedToCore(monitorUpdateTask, "MonitorUpdate", 2048, NULL, 1, NULL, 1);
 
+    init_spi_master();
 
-    Serial.println("✅ System ready");
+    xTaskCreatePinnedToCore(motorControlTask,  "MotorCtrl",   4096, nullptr, 1, nullptr, 1);
+    xTaskCreatePinnedToCore(debugTask,         "Debug",       4096, nullptr, 1, nullptr, 1);
+    xTaskCreatePinnedToCore(monitorUpdateTask, "MonitorPID",  2048, nullptr, 1, nullptr, 1);
+    xTaskCreatePinnedToCore(spiReceiveTask,    "SPIReceive",  4096, nullptr, 1, nullptr, 1);
+
+    Serial.println("✅ MainController ready");
 }
 
 void loop() {
-    // Obsługa w zadaniach
+    // All logic is in FreeRTOS tasks
 }
