@@ -18,7 +18,7 @@ SemaphoreHandle_t movementMutex;
 SemaphoreHandle_t monitorMutex;
 
 static int32_t totalMessages = 0;
-static float motorCtrlAvgTime = 0.0f;
+static volatile float motorCtrlAvgTime = 0.0f;
 
 // ================= Silniki =================
 Motor frontLeftMotor(FL_CONFIG);
@@ -54,6 +54,17 @@ void spiReceiveTask(void* parameter) {
         memcpy(&pidKp, &recvBuf[0], sizeof(float));
         memcpy(&pidKi, &recvBuf[4], sizeof(float));
         memcpy(&pidKd, &recvBuf[8], sizeof(float));
+
+        // Odrzuć dane jeśli szyna jest bezczynna (same zera) lub zawiera NaN/Inf
+        if (!isfinite(pidKp) || !isfinite(pidKi) || !isfinite(pidKd)) {
+            Serial.println("⚠️ SPI PID: wartości spoza zakresu, ignoruję");
+            vTaskDelay(pdMS_TO_TICKS(500));
+            continue;
+        }
+        if (pidKp == 0.0f && pidKi == 0.0f && pidKd == 0.0f) {
+            vTaskDelay(pdMS_TO_TICKS(500));
+            continue;
+        }
 
         frontLeftMotor.setPID(pidKp, pidKi, pidKd);
         frontRightMotor.setPID(pidKp, pidKi, pidKd);
@@ -117,11 +128,11 @@ void debugTask(void* parameter) {
             debugMsg.timestamp = millis();
             debugMsg.totalMessages = totalMessages;
 
-            RPMData target = drive.readRPMs();
-            debugMsg.frontLeftSpeedRPM = target.frontLeft;
-            debugMsg.frontRightSpeedRPM = target.frontRight;
-            debugMsg.rearLeftSpeedRPM = target.rearLeft;
-            debugMsg.rearRightSpeedRPM = target.rearRight;
+            RPMData rpms = drive.readRPMs();
+            debugMsg.frontLeftSpeedRPM = rpms.frontLeft;
+            debugMsg.frontRightSpeedRPM = rpms.frontRight;
+            debugMsg.rearLeftSpeedRPM = rpms.rearLeft;
+            debugMsg.rearRightSpeedRPM = rpms.rearRight;
 
             debugMsg.frontLeftEncoder = 0;
             debugMsg.frontRightEncoder = 0;
@@ -171,6 +182,12 @@ void setup() {
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
 
+    // Muteksy MUSZĄ być gotowe zanim zarejestrujemy callback ESP-NOW —
+    // WiFi task (rdzeń 0) może wywołać OnDataRecv natychmiast po rejestracji,
+    // podczas gdy setup() jeszcze trwa na rdzeniu 1.
+    movementMutex = xSemaphoreCreateMutex();
+    monitorMutex = xSemaphoreCreateMutex();
+
     if (esp_now_init() != ESP_OK) {
         Serial.println("❌ ESP-NOW init failed");
         return;
@@ -189,9 +206,6 @@ void setup() {
     peerDebug.channel = ESP_CHANNEL;
     peerDebug.encrypt = false;
     esp_now_add_peer(&peerDebug);
-
-    movementMutex = xSemaphoreCreateMutex();
-    monitorMutex = xSemaphoreCreateMutex();
 
     init_spi_master();
 

@@ -43,14 +43,24 @@ void Motor::setupEncoder() {
 }
 
 void Motor::setTargetRPM(float rpm) {
+    if (_state == MotorState::HardStopped)
+        _state = MotorState::Active;
     _targetRPM = _cfg.invertDirection ? -rpm : rpm;
 }
 
-// modyfikacja metoddy update() i computePID() do softStop
 void Motor::update() {
     uint32_t now = millis();
     uint32_t dt = now - _lastTimeMs;
     if (dt == 0) return;
+
+    // HardStopped: silnik zablokowany, ignoruj wszystkie komendy do momentu setTargetRPM
+    if (_state == MotorState::HardStopped) {
+        ledcWrite(_cfg.pwmChannel1, 0);
+        ledcWrite(_cfg.pwmChannel2, 0);
+        _lastTimeMs = now;
+        _lastCount = _encoder.getCount();
+        return;
+    }
 
     // Obsługa stanu SoftStopping
     if (_state == MotorState::SoftStopping) {
@@ -100,18 +110,18 @@ void Motor::update() {
 
 
 float Motor::computePID(float error, float dt) {
-    // Sumowanie całki
     _errorSum += error * dt;
-    // Pochodna
+    // Anti-windup: ogranicz całkę tak, by Ki*errorSum mieściło się w granicach wyjścia
+    if (_Ki != 0.0f) {
+        _errorSum = constrain(_errorSum, _outputMin / _Ki, _outputMax / _Ki);
+    }
     float dError = (error - _lastError) / dt;
 
-    // Regulacja PID z użyciem danych z konfiguracji
-    float output = _cfg.Kp * error
-                 + _cfg.Ki * _errorSum
-                 + _cfg.Kd * dError;
+    float output = _Kp * error
+                 + _Ki * _errorSum
+                 + _Kd * dError;
 
-    // Ograniczenie wyjścia
-    output = constrain(output, _cfg.outputMin, _cfg.outputMax);
+    output = constrain(output, _outputMin, _outputMax);
 
     return output;
 }
@@ -130,11 +140,12 @@ int Motor::getControlOutput() const {
     return _controlOut;
 }
 
-//modyfikacja przygotowywująca do softStop i hardStop
 void Motor::softStop(uint32_t durationMs) {
     if (_state != MotorState::Active)
-        return; // ignorujemy jeśli już w trybie stopu
+        return;
 
+    _errorSum = 0.0f;
+    _lastError = 0.0f;
     _state = MotorState::SoftStopping;
     _softStopStartMs = millis();
     _softStopDurationMs = (durationMs > 0) ? durationMs : _cfg.softStopDurationMs;
@@ -142,10 +153,15 @@ void Motor::softStop(uint32_t durationMs) {
 }
 
 void Motor::hardStop() {
-    softStop(_cfg.hardStopDurationMs); //szybkie zatrzymanie wykorzystujące softStop
+    // Natychmiastowy stop — działa zawsze, niezależnie od bieżącego stanu
+    _state = MotorState::HardStopped;
+    _targetRPM = 0.0f;
+    _errorSum = 0.0f;
+    _lastError = 0.0f;
+    ledcWrite(_cfg.pwmChannel1, 0);
+    ledcWrite(_cfg.pwmChannel2, 0);
 }
 
-//metod do zmiany PID
 void Motor::setPID(float Kp, float Ki, float Kd) {
     _Kp = Kp;
     _Ki = Ki;
