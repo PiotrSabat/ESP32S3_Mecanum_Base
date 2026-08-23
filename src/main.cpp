@@ -7,7 +7,11 @@
 #include "Motor.h"
 #include "MecanumDrive.h"
 #include "messages.h"
-#include "mac_addresses_private.h"
+#if __has_include("mac_addresses_private.h")
+  #include "mac_addresses_private.h"
+#else
+  #include "mac_addresses.h"
+#endif
 
 // Struktura odbierana z pada
 static Message_from_Pad myData_from_Pad;
