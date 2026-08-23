@@ -1,6 +1,8 @@
-# Mecanum Platform – ESP32-S3 + Encoders + IMU + FreeRTOS
+# Mecanum Platform – ESP32-S3 + Encoders + FreeRTOS
 
-This repository contains the firmware for a mecanum-wheeled robotic platform based on the ESP32-S3. The platform is designed as part of a modular robotics system and communicates wirelessly using ESP-NOW or via cable using SPI. It supports odometry using wheel encoders, orientation estimation via an IMU, and real-time motor control through PWM signals.
+This repository contains the firmware for a mecanum-wheeled robotic platform based on the ESP32-S3. The platform is one half of a two-device system — the other is a handheld pad that both drives the robot and displays its telemetry. The two communicate wirelessly over ESP-NOW. Wheel speed is measured with incremental encoders and regulated by a per-motor PID loop driving PWM outputs.
+
+IMU-based orientation estimation and odometry are planned but not implemented yet — see the roadmap below.
 
 ---
 
@@ -8,10 +10,10 @@ This repository contains the firmware for a mecanum-wheeled robotic platform bas
 - **ESP32-S3** as the main controller
 - **4 DC motors with encoders** for mecanum drive (X, Y, rotation)
 - **PWM + DIR motor drivers**
-- **Incremental encoders** with ~1000 pulses per minute
+- **Incremental encoders**, ~960 pulses per wheel revolution
+- **Closed-loop speed control** — independent PID per motor, tunable at runtime
 - **FreeRTOS** task-based architecture
-- **Modular communication via ESP-NOW **
-- **Support for external debug monitor and remote control pad**
+- **ESP-NOW link to the control pad**, carrying commands one way and telemetry the other
 
 ---
 
@@ -41,9 +43,10 @@ This repository contains the firmware for a mecanum-wheeled robotic platform bas
 
 ### Stage 2 – Odometry & Motion Logic
 - [x] Calculate velocity (X, Y, angular) based on encoder data
+- [x] Create basic PID loop for closed-loop velocity control
 - [ ] Implement odometry tracking for position and heading
-- [ ] Create basic PID loop for closed-loop velocity control
-- [ ] Integrate watchdog for motor task failures
+- [ ] Fail-safe: stop the platform when the link to the pad goes silent
+- [ ] Scale and normalise pad input so combined axes cannot exceed `MAX_RPM`
 - [ ] Test performance across speed range: min, max, stable
 
 ### Stage 3 – IMU & Sensor Fusion
@@ -53,15 +56,18 @@ This repository contains the firmware for a mecanum-wheeled robotic platform bas
 - [ ] Add fallback logic in case IMU or encoder fails
 
 ### Stage 4 – Communication
-- [ ] Implement SPI slave communication with controller (pad)
-- [ ] Implement ESP-NOW as backup or for remote telemetry
-- [ ] Create structured message format for motor commands and telemetry
+- [x] Structured message format for motor commands and telemetry (`src/messages.h`)
+- [x] ESP-NOW as the single link between pad and platform
+- [ ] Keep `messages.h` in sync across both repositories automatically
 - [ ] Add message parsing with CRC/checksum validation
 
-### Stage 5 – Diagnostics & Debug Monitor
-- [ ] Send periodic status to monitor (errors, voltage, current)
-- [ ] Display system state visually via monitor screen
-- [ ] Log system faults (motor error, encoder failure, IMU missing)
+SPI to the pad was explored and dropped; ESP-NOW is now the only channel.
+
+### Stage 5 – Diagnostics on the Pad
+- [x] Send periodic telemetry (wheel RPM, task timing, message counters)
+- [ ] Redirect telemetry from the retired monitor module to the pad
+- [ ] Display system state on the pad screen
+- [ ] Report battery voltage and log faults (motor, encoder, link loss)
 
 ### Stage 6 – Physical Optimization
 - [ ] Move from breadboard to protoboard or PCB
@@ -76,11 +82,36 @@ This project is licensed under the **GNU General Public License v3.0**. See the 
 
 ---
 
+## Build & Flash
+
+Requires [PlatformIO](https://platformio.org/).
+
+```bash
+git clone https://github.com/PiotrSabat/ESP32S3_Mecanum_Base.git
+cd ESP32S3_Mecanum_Base
+pio run -t upload
+```
+
+**MAC addresses.** The project builds out of the box using the placeholder
+addresses in `src/mac_addresses.h`. Edit that file with the MAC addresses of
+your own devices, or create `src/mac_addresses_private.h` — if present, it takes
+precedence and is excluded from version control.
+
+Every push and pull request is built by GitHub Actions, so a broken build shows
+up before it reaches the hardware.
+
+---
+
 ## Notes
-This platform is part of a broader modular robotic system consisting of:
-- A **controller pad** (ESP32-S3 + display + joysticks)
+This platform is one half of a two-device robotic system:
+- A **controller pad** (Xiao ESP32-S3 + TFT display + joysticks) — drives the
+  robot and doubles as its telemetry display
+  ([Pad_Adafruit_Xiao](https://github.com/CableAndCode/Pad_Adafruit_Xiao))
 - The **platform** (this repo)
-- A **debug monitor** (telemetry and diagnostic module)
+
+An earlier design included a separate debug monitor module and a companion
+iPhone app. Both were dropped in favour of putting the diagnostics on the pad
+itself, which shortens the path to a system that simply works.
 
 Development focus: clean modular code, reproducible experiments, future integration with ROS2 and machine learning components.
 
