@@ -25,7 +25,7 @@ SemaphoreHandle_t monitorMutex;
 // Licznik wiadomości wysłanych w debugu
 static int32_t totalMessages = 0;
 //Średni czas tasku do debugowania
-static float motorCtrlAvgTime = 0.0f;  // w µs
+static volatile float motorCtrlAvgTime = 0.0f;  // w µs
 
 // Obiekty silników
 static Motor frontLeftMotor(FL_CONFIG);
@@ -174,6 +174,12 @@ void setup() {
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
 
+    // Muteksy MUSZĄ być gotowe zanim zarejestrujemy callback ESP-NOW —
+    // WiFi task (rdzeń 0) może wywołać OnDataRecv natychmiast po rejestracji,
+    // podczas gdy setup() jeszcze trwa na rdzeniu 1.
+    movementMutex = xSemaphoreCreateMutex();
+    monitorMutex = xSemaphoreCreateMutex();
+
     if (esp_now_init() != ESP_OK) {
         Serial.println("❌ ESP-NOW init failed");
         return;
@@ -192,13 +198,13 @@ void setup() {
     esp_now_add_peer(&peerDebugMonitor);
 
     // Mutexy
-    movementMutex = xSemaphoreCreateMutex();
+    
     if (!movementMutex) {
         Serial.println("❌ Nie udało się utworzyć mutexu do ruchu");
         while (1) vTaskDelay(100);
     }
     
-    monitorMutex = xSemaphoreCreateMutex();
+    
     if (!monitorMutex) {
         Serial.println("❌ Nie udało się utworzyć mutexu do monitora");
         while (1) vTaskDelay(100);
