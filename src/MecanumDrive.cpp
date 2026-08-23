@@ -7,7 +7,7 @@ void MecanumDrive::drive(float vx, float vy, float omega) {
     // Prosta kinematyka dla kół mecanum (zakładamy bezwzględny współczynnik)
     float frontLeftRPM  = vy + vx + omega;
     float frontRightRPM = vy - vx - omega;
-    float rearLeftRPM   = vy + vx + omega;
+    float rearLeftRPM   = vy - vx + omega;
     float rearRightRPM  = vy + vx - omega;
 
     _fl->setTargetRPM(frontLeftRPM);
