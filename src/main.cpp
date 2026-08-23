@@ -108,15 +108,18 @@ void motorControlTask(void* parameter) {
             // Kinematyka Mecanum
             drive.drive((float)x, (float)y, (float)yaw);
         } else if (!failsafeEngaged) {
-            // Zlecamy hamowanie dokładnie raz. Potem NIE wołamy drive(),
-            // bo setTargetRPM() nadpisałoby zadaną prędkość starymi danymi.
+            // Odcinamy zasilanie silników dokładnie raz. Przekładnia 120:1
+            // zatrzyma platformę sama — hamowanie silnikiem tylko ciągnęłoby
+            // prąd, ryzykując zadziałanie zabezpieczenia ogniw.
+            // Potem NIE wołamy drive(), bo setTargetRPM() skasowałoby stan
+            // HardStopped i wznowiło jazdę na starych danych z joysticka.
             failsafeEngaged = true;
-            drive.softStop(FAILSAFE_STOP_DURATION_MS);
-            Serial.println("⚠️ Utrata łączności z padem — hamowanie awaryjne");
+            drive.hardStop();
+            Serial.println("⚠️ Utrata łączności z padem — odcięcie napędu");
         }
 
-        // Aktualizacja pętli PID — wołana ZAWSZE, także w failsafe:
-        // to ona realizuje rampę hamowania i utrzymuje zerową prędkość.
+        // Aktualizacja pętli PID — wołana ZAWSZE, także w failsafe: podtrzymuje
+        // odcięcie napędu i odświeża zmierzoną prędkość na potrzeby telemetrii.
         drive.update();
 
         //--------------debugowanie: czas wykonania tasku

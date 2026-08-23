@@ -53,12 +53,23 @@ void Motor::update() {
     uint32_t dt = now - _lastTimeMs;
     if (dt == 0) return;
 
-    // HardStopped: silnik zablokowany, ignoruj wszystkie komendy do momentu setTargetRPM
+    // Pomiar prędkości wykonujemy ZAWSZE, niezależnie od stanu silnika.
+    // Telemetria musi pokazywać prawdę także wtedy, gdy silnik jest zatrzymany —
+    // wcześniej w stanie HardStopped raportowana była prędkość sprzed stopu.
+    int64_t count = _encoder.getCount();
+    int64_t deltaCount = count - _lastCount;
+    float deltaRevs = deltaCount / _cfg.gearRatio;  // gearRatio = impulsy na obrót
+    _currentRPM = (deltaRevs * 60000.0f) / dt;
+    _lastTimeMs = now;
+    _lastCount  = count;
+
+    // HardStopped: odcinamy zasilanie silnika i czekamy na nową komendę.
+    // Przekładnia 120:1 zatrzymuje platformę sama, więc aktywne hamowanie
+    // silnikiem niczego by nie przyspieszyło, a ciągnęłoby prąd.
     if (_state == MotorState::HardStopped) {
         ledcWrite(_cfg.pwmChannel1, 0);
         ledcWrite(_cfg.pwmChannel2, 0);
-        _lastTimeMs = now;
-        _lastCount = _encoder.getCount();
+        _controlOut = 0;
         return;
     }
 
@@ -76,13 +87,6 @@ void Motor::update() {
             _targetRPM = _initialTargetRPM - targetDelta;
         }
     }
-
-    int64_t count = _encoder.getCount();
-    int64_t deltaCount = count - _lastCount;
-
-    // Obliczenie bieżącego RPM (przy założeniu gearRatio jako liczby impulsów na obrót)
-    float deltaRevs = deltaCount / _cfg.gearRatio;
-    _currentRPM = (deltaRevs * 60000.0f) / dt;
 
     // Ograniczenie przyspieszenia. Narastanie zadanej prędkości jest limitowane,
     // żeby regulator nie wystawiał od razu pełnego PWM — to właśnie skok prądu
@@ -108,6 +112,25 @@ void Motor::update() {
     // Ograniczenie sygnału PWM przy użyciu funkcji Arduino
     int pwmVal = static_cast<int>(pidOut);
     pwmVal = constrain(pwmVal, -_maxPwmValue, _maxPwmValue);
+
+    // Ograniczenie hamowania przeciwprądem. Jeśli koło kręci się w jedną stronę,
+    // a regulator żąda napięcia w przeciwną, prąd = (U_baterii + SEM) / R, czyli
+    // WIĘCEJ niż przy zwarciu. To właśnie wywalało zabezpieczenie ogniw przy
+    // puszczeniu drążka. Przekładnia 120:1 wyhamuje platformę sama.
+    if (_currentRPM > BRAKING_RPM_THRESHOLD && pwmVal < -MAX_BRAKING_PWM) {
+        pwmVal = -MAX_BRAKING_PWM;
+    } else if (_currentRPM < -BRAKING_RPM_THRESHOLD && pwmVal > MAX_BRAKING_PWM) {
+        pwmVal = MAX_BRAKING_PWM;
+    }
+
+    // Postój: przy zerowej zadanej i stojącym kole odcinamy zasilanie i zerujemy
+    // całkę. Bez tego zostaje resztkowe wypełnienie, które nie porusza kołem
+    // (jest poniżej progu tarcia), a mimo to ciągnie prąd i grzeje silnik.
+    if (_rampedTarget == 0.0f && fabsf(_currentRPM) < BRAKING_RPM_THRESHOLD) {
+        pwmVal = 0;
+        _errorSum = 0.0f;
+    }
+
     _controlOut = pwmVal;
 
     // Ustawienie kierunku i wartości PWM
@@ -120,27 +143,33 @@ void Motor::update() {
     }
 
     // Aktualizacja wartości dla następnego kroku
-    _lastTimeMs = now;
-    _lastCount = count;
+    // (_lastTimeMs i _lastCount ustawione już przy pomiarze na początku)
     _lastError = error;
 }
 
 
 float Motor::computePID(float error, float dt) {
-    _errorSum += error * dt;
-    // Anti-windup: ogranicz całkę tak, by Ki*errorSum mieściło się w granicach wyjścia
-    if (_Ki != 0.0f) {
-        _errorSum = constrain(_errorSum, _outputMin / _Ki, _outputMax / _Ki);
-    }
     float dError = (error - _lastError) / dt;
 
-    float output = _Kp * error
-                 + _Ki * _errorSum
-                 + _Kd * dError;
+    // Całkowanie warunkowe (anti-windup). Całkę powiększamy tylko wtedy, gdy
+    // nie wypchnie to wyjścia poza zakres regulatora.
+    //
+    // Poprzednia wersja całkowała zawsze i tylko przycinała sumę. Skutek:
+    // przy hamowaniu z dużej prędkości błąd był duży i ujemny przez wiele
+    // cykli, całka ładowała się do minimum, a gdy koło się zatrzymało i błąd
+    // wracał do zera — całka nadal żądała pełnego rewersu i wyrzucała silnik
+    // w tył. Stąd część „gumowatego" zachowania przy zwalnianiu.
+    float candidateSum = _errorSum + error * dt;
+    float output = _Kp * error + _Ki * candidateSum + _Kd * dError;
 
-    output = constrain(output, _outputMin, _outputMax);
+    if (output >= _outputMin && output <= _outputMax) {
+        _errorSum = candidateSum;              // wyjście w zakresie — całkujemy
+    } else {
+        // Wyjście nasycone — pomijamy nowy wkład do całki.
+        output = _Kp * error + _Ki * _errorSum + _Kd * dError;
+    }
 
-    return output;
+    return constrain(output, _outputMin, _outputMax);
 }
 
 float Motor::getCurrentRPM() const {

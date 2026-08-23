@@ -64,6 +64,26 @@ constexpr uint32_t DEFAULT_HARD_STOP_DURATION_MS = 50;  // Czas domyślnego hard
 // Mniejsza wartość = łagodniejszy rozruch i mniejszy prąd, ale wolniejsza reakcja.
 constexpr float MAX_ACCEL_RPM_PER_S = 300.0f;
 
+// ----- Ograniczenie hamowania silnikiem (hamowanie przeciwprądem) -----
+// Gdy regulator chce podać napięcie PRZECIWNE do bieżącego kierunku obrotu
+// (puszczony drążek, zmiana kierunku), prąd nie jest ograniczony rezystancją
+// uzwojenia jak przy rozruchu — do napięcia baterii dodaje się siła
+// elektromotoryczna wirującego silnika. Przy pełnym rewersie z maksymalnej
+// prędkości prąd jest WIĘKSZY niż przy zwarciu i zabezpieczenie ogniw odcina.
+//
+// Przy przekładni 120:1 platforma i tak zatrzymuje się sama na tarciu, więc
+// hamowanie silnikiem jest tylko dodatkiem, a nie koniecznością.
+// 0 = całkowity brak hamowania silnikiem (czysty wybieg, zero prądu hamowania).
+// Większa wartość = mocniejsze hamowanie, ale wyższy prąd.
+// Zaczynamy od 0, bo to jedyna wartość gwarantująca brak zadziałania
+// zabezpieczenia; przekładnia i tak zatrzymuje platformę. Jeśli hamowanie
+// okaże się zbyt leniwe, podnoś po 50 i sprawdzaj po każdym kroku.
+constexpr int MAX_BRAKING_PWM = 0;
+
+// Poniżej tej prędkości koło uznajemy za stojące i ograniczenie hamowania
+// przestaje obowiązywać — inaczej nie dałoby się ruszyć w drugą stronę.
+constexpr float BRAKING_RPM_THRESHOLD = 8.0f;
+
 // ----- Failsafe: utrata łączności z padem -----
 // Pad nadaje co 50 ms. Cisza dłuższa niż PAD_LINK_TIMEOUT_MS oznacza zerwane
 // łącze (6 zgubionych ramek) i uruchamia automatyczne hamowanie.
@@ -71,9 +91,9 @@ constexpr float MAX_ACCEL_RPM_PER_S = 300.0f;
 // za duża = robot dłużej jedzie bez kontroli. Strojone na sprzęcie.
 constexpr uint32_t PAD_LINK_TIMEOUT_MS = 300;
 
-// Czas wyhamowania po wykryciu utraty łączności. Krótszy niż zwykły soft stop,
-// bo tu liczy się dystans, ale nie na tyle gwałtowny, by robot się zarył.
-constexpr uint32_t FAILSAFE_STOP_DURATION_MS = 250;
+// Po wykryciu ciszy napęd jest ODCINANY (hardStop), a nie hamowany silnikiem:
+// przy przekładni 120:1 platforma zatrzymuje się sama na tarciu przekładni,
+// więc aktywne hamowanie tylko ciągnęłoby prąd bez zysku na drodze hamowania.
 
 
 
