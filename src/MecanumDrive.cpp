@@ -23,11 +23,11 @@ void MecanumDrive::update() {
     _rr->update();
 }
 
-void MecanumDrive::softStop() {
-    _fl->softStop();
-    _fr->softStop();
-    _rl->softStop();
-    _rr->softStop();
+void MecanumDrive::softStop(uint32_t durationMs) {
+    _fl->softStop(durationMs);
+    _fr->softStop(durationMs);
+    _rl->softStop(durationMs);
+    _rr->softStop(durationMs);
 }
 
 void MecanumDrive::hardStop() {

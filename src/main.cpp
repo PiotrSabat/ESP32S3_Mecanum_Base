@@ -26,6 +26,12 @@ static SemaphoreHandle_t movementMutex;
 SemaphoreHandle_t monitorMutex;
 
 
+// ---- Failsafe: nadzór łączności z padem ----
+// Zapisywane w OnDataRecv (task WiFi, rdzeń 0), czytane w motorControlTask
+// (rdzeń 1). Oba dostępy odbywają się pod movementMutex.
+static volatile uint32_t lastPadMsgMs = 0;    // millis() ostatniej ramki z pada
+static volatile bool     padEverSeen  = false; // czy przyszła choć jedna ramka
+
 // Licznik wiadomości wysłanych w debugu
 static int32_t totalMessages = 0;
 //Średni czas tasku do debugowania
@@ -49,6 +55,9 @@ void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
     if (len == sizeof(Message_from_Pad)) {
         if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
             memcpy(&myData_from_Pad, incomingData, sizeof(Message_from_Pad));
+            // Znacznik żywotności łącza — jedyne miejsce, gdzie jest odświeżany
+            lastPadMsgMs = millis();
+            padEverSeen  = true;
             xSemaphoreGive(movementMutex);
         }
     }
@@ -69,24 +78,45 @@ void motorControlTask(void* parameter) {
     //-----------koniec deklaracji zmiennych debugowania
 
 
-    int16_t x, y, yaw;
+    int16_t x = 0, y = 0, yaw = 0;
+    bool linkAlive = false;
+    bool failsafeEngaged = false;  // zatrzask: hamowanie zlecane raz na epizod
+
     for (;;) {
         //-----------debugowanie: czas wykonania tasku
         uint64_t start = esp_timer_get_time();  // ✱ początek pomiaru
         //--------------koniec debugowania
-        
-        // Odczyt danych z pada
+
+        // Odczyt danych z pada + ocena żywotności łącza
 
 
         if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
             x   = myData_from_Pad.L_Joystick_x_message;
             y   = myData_from_Pad.L_Joystick_y_message;
             yaw = myData_from_Pad.R_Joystick_x_message;
+            // Odejmowanie na uint32_t jest odporne na przepełnienie millis()
+            linkAlive = padEverSeen &&
+                        (millis() - lastPadMsgMs) < PAD_LINK_TIMEOUT_MS;
             xSemaphoreGive(movementMutex);
         }
-        // Kinematyka Mecanum
-        drive.drive((float)x, (float)y, (float)yaw);
-        // Aktualizacja pętli PID
+
+        if (linkAlive) {
+            if (failsafeEngaged) {
+                failsafeEngaged = false;
+                Serial.println("✅ Łączność z padem przywrócona");
+            }
+            // Kinematyka Mecanum
+            drive.drive((float)x, (float)y, (float)yaw);
+        } else if (!failsafeEngaged) {
+            // Zlecamy hamowanie dokładnie raz. Potem NIE wołamy drive(),
+            // bo setTargetRPM() nadpisałoby zadaną prędkość starymi danymi.
+            failsafeEngaged = true;
+            drive.softStop(FAILSAFE_STOP_DURATION_MS);
+            Serial.println("⚠️ Utrata łączności z padem — hamowanie awaryjne");
+        }
+
+        // Aktualizacja pętli PID — wołana ZAWSZE, także w failsafe:
+        // to ona realizuje rampę hamowania i utrzymuje zerową prędkość.
         drive.update();
 
         //--------------debugowanie: czas wykonania tasku

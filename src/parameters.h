@@ -55,6 +55,17 @@ constexpr int MAX_RPM = 180;             // Maximum motor speed
 constexpr uint32_t DEFAULT_SOFT_STOP_DURATION_MS = 500;  // Czas domyślnego soft stopu (ms)
 constexpr uint32_t DEFAULT_HARD_STOP_DURATION_MS = 50;  // Czas domyślnego hard stopu (ms)
 
+// ----- Failsafe: utrata łączności z padem -----
+// Pad nadaje co 50 ms. Cisza dłuższa niż PAD_LINK_TIMEOUT_MS oznacza zerwane
+// łącze (6 zgubionych ramek) i uruchamia automatyczne hamowanie.
+// Za mała wartość = fałszywe alarmy przy chwilowych zakłóceniach,
+// za duża = robot dłużej jedzie bez kontroli. Strojone na sprzęcie.
+constexpr uint32_t PAD_LINK_TIMEOUT_MS = 300;
+
+// Czas wyhamowania po wykryciu utraty łączności. Krótszy niż zwykły soft stop,
+// bo tu liczy się dystans, ale nie na tyle gwałtowny, by robot się zarył.
+constexpr uint32_t FAILSAFE_STOP_DURATION_MS = 250;
+
 
 
 // ===== Task Scheduling Rates (in milliseconds) =====
