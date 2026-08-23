@@ -78,7 +78,16 @@ SPI to the pad was explored and dropped; ESP-NOW is now the only channel.
 ---
 
 ## License
-This project is licensed under the **GNU General Public License v3.0**. See the [LICENSE](LICENSE) file for details.
+
+Released under the MIT License. See [LICENSE](LICENSE).
+
+Third-party libraries retain their own licenses:
+- [ESP32Encoder](https://github.com/madhephaestus/ESP32Encoder) – BSD 4-clause
+- ESP32 Arduino Core (including ESP-NOW and WiFi) – Apache 2.0 / LGPL
+
+This product includes software developed by the "Universidad de Palermo,
+Argentina" (http://www.palermo.edu/) — acknowledgment required by the
+ESP32Encoder license.
 
 ---
 
