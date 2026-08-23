@@ -50,6 +50,19 @@ static MecanumDrive drive(&frontLeftMotor, &frontRightMotor, &rearLeftMotor, &re
 static esp_now_peer_info_t peerPad;
 static esp_now_peer_info_t peerDebugMonitor;
 
+// Przeliczenie osi joysticka (±JOYSTICK_MAX z pada) na prędkość w RPM.
+// Poza martwą strefą skala jest liniowa i rozciągnięta tak, by tuż za jej
+// krawędzią prędkość startowała od zera — inaczej drążek „łapałby" skokiem.
+static float padAxisToRPM(int16_t raw) {
+    float v = constrain((float)raw, -(float)JOYSTICK_MAX, (float)JOYSTICK_MAX);
+    if (fabsf(v) < JOYSTICK_DEADZONE) return 0.0f;
+
+    float sign = (v > 0.0f) ? 1.0f : -1.0f;
+    float mag  = (fabsf(v) - JOYSTICK_DEADZONE) /
+                 (float)(JOYSTICK_MAX - JOYSTICK_DEADZONE);
+    return sign * mag * (float)MAX_RPM;
+}
+
 // Callback ESP-NOW
 void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
     if (len == sizeof(Message_from_Pad)) {
@@ -105,8 +118,8 @@ void motorControlTask(void* parameter) {
                 failsafeEngaged = false;
                 Serial.println("✅ Łączność z padem przywrócona");
             }
-            // Kinematyka Mecanum
-            drive.drive((float)x, (float)y, (float)yaw);
+            // Kinematyka Mecanum — wejście przeliczone z jednostek drążka na RPM
+            drive.drive(padAxisToRPM(x), padAxisToRPM(y), padAxisToRPM(yaw));
         } else if (!failsafeEngaged) {
             // Odcinamy zasilanie silników dokładnie raz. Przekładnia 120:1
             // zatrzyma platformę sama — hamowanie silnikiem tylko ciągnęłoby

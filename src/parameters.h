@@ -51,6 +51,18 @@ constexpr int RR_ENCODER_B = 18;
 
 
 constexpr int MAX_RPM = 180;             // Maximum motor speed
+
+// ===== Wejście z pada =====
+// Pad zwraca wartości z zakresu ±511 (getCorrectedValue sprowadza się do
+// raw - offset przy 10-bitowym ADC). Bez przeliczenia na MAX_RPM pełną
+// prędkość osiągało się już przy ~35% wychylenia drążka, a reszta skoku
+// nie robiła nic.
+constexpr int JOYSTICK_MAX = 511;
+
+// Martwa strefa wokół położenia spoczynkowego. Poza wyeliminowaniem pełzania
+// od szumu ADC sprawia, że zadana prędkość jest DOKŁADNIE zerowa przy
+// puszczonych drążkach — a od tego zależy wygaszanie wyjścia i całki na postoju.
+constexpr int JOYSTICK_DEADZONE = 12;
 // ===== Safety Parameters =====
 constexpr uint32_t DEFAULT_SOFT_STOP_DURATION_MS = 500;  // Czas domyślnego soft stopu (ms)
 constexpr uint32_t DEFAULT_HARD_STOP_DURATION_MS = 50;  // Czas domyślnego hard stopu (ms)
