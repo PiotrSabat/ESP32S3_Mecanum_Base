@@ -144,7 +144,8 @@ private:
     int          _maxPwmValue; ///< Maksymalna wartość PWM (2^resolution - 1)
 
     // PID
-    float        _targetRPM   = 0.0f;
+    float        _targetRPM   = 0.0f;  ///< Prędkość zadana przez sterowanie
+    float        _rampedTarget = 0.0f; ///< Zadana po ograniczeniu przyspieszenia
     float        _currentRPM  = 0.0f;
     float        _errorSum    = 0.0f;
     float        _lastError   = 0.0f;

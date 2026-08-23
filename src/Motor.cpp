@@ -84,7 +84,24 @@ void Motor::update() {
     float deltaRevs = deltaCount / _cfg.gearRatio;
     _currentRPM = (deltaRevs * 60000.0f) / dt;
 
-    float error = _targetRPM - _currentRPM;
+    // Ograniczenie przyspieszenia. Narastanie zadanej prędkości jest limitowane,
+    // żeby regulator nie wystawiał od razu pełnego PWM — to właśnie skok prądu
+    // przy ruszaniu czterech silników wywala zabezpieczenie ogniw.
+    // Ruch zadanej W STRONĘ ZERA jest swobodny, żeby nie spowalniać softStop
+    // ani hamowania awaryjnego po utracie łączności.
+    {
+        float maxDelta = MAX_ACCEL_RPM_PER_S * (dt / 1000.0f);
+        float delta = _targetRPM - _rampedTarget;
+        bool towardZero = fabsf(_targetRPM) < fabsf(_rampedTarget) &&
+                          (_targetRPM * _rampedTarget) >= 0.0f;
+        if (!towardZero) {
+            if (delta >  maxDelta) delta =  maxDelta;
+            if (delta < -maxDelta) delta = -maxDelta;
+        }
+        _rampedTarget += delta;
+    }
+
+    float error = _rampedTarget - _currentRPM;
     float pidOut = computePID(error, dt);
     
 
@@ -156,6 +173,7 @@ void Motor::hardStop() {
     // Natychmiastowy stop — działa zawsze, niezależnie od bieżącego stanu
     _state = MotorState::HardStopped;
     _targetRPM = 0.0f;
+    _rampedTarget = 0.0f;
     _errorSum = 0.0f;
     _lastError = 0.0f;
     ledcWrite(_cfg.pwmChannel1, 0);

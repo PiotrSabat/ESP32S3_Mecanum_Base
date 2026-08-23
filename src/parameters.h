@@ -55,6 +55,15 @@ constexpr int MAX_RPM = 180;             // Maximum motor speed
 constexpr uint32_t DEFAULT_SOFT_STOP_DURATION_MS = 500;  // Czas domyślnego soft stopu (ms)
 constexpr uint32_t DEFAULT_HARD_STOP_DURATION_MS = 50;  // Czas domyślnego hard stopu (ms)
 
+// ----- Ograniczenie przyspieszenia (ochrona zabezpieczenia prądowego) -----
+// O ile RPM na sekundę może NARASTAĆ zadana prędkość koła. Bez tego regulator
+// przy ruszaniu wystawia od razu pełne wypełnienie PWM, cztery silniki ruszają
+// jak zwarcie i zabezpieczenie prądowe ogniw odcina zasilanie.
+// Zjazd zadanej do zera NIE jest ograniczany — hamowanie awaryjne musi zostać
+// tak szybkie, jak było.
+// Mniejsza wartość = łagodniejszy rozruch i mniejszy prąd, ale wolniejsza reakcja.
+constexpr float MAX_ACCEL_RPM_PER_S = 300.0f;
+
 // ----- Failsafe: utrata łączności z padem -----
 // Pad nadaje co 50 ms. Cisza dłuższa niż PAD_LINK_TIMEOUT_MS oznacza zerwane
 // łącze (6 zgubionych ramek) i uruchamia automatyczne hamowanie.
