@@ -67,6 +67,39 @@ Samo ograniczenie istnieje, bo bez niego regulator przy skoku zadanej wystawia
 w pierwszym cyklu pełne PWM, cztery silniki ruszają jak zwarcie i zabezpieczenie
 prądowe ogniw odcina zasilanie. To się realnie zdarzyło po podniesieniu `Kp`.
 
+### Moment przeciwny do obrotu musi być limitowany zależnie od prędkości
+
+Gdy regulator podaje napięcie przeciwne do kierunku obrotu koła, prąd wynosi
+`(U_baterii + SEM) / R` — czyli **więcej niż przy zwarciu**, bo siła
+elektromotoryczna dodaje się zamiast odejmować. A SEM rośnie z prędkością.
+
+Dlatego limit w `Motor::update()` maleje liniowo od `MAX_HOLDING_PWM` przy
+zerowych obrotach do zera przy `MAX_RPM`. To nie jest ozdobnik:
+
+- **przy stojącym kole** SEM ≈ 0, moment jest tani i platforma dzięki niemu
+  trzyma pozycję pod naciskiem — bez tego koła dają się swobodnie obracać ręką;
+- **przy pełnej prędkości** ten sam PWM oznacza prąd zrywający zabezpieczenie
+  ogniw, więc limit schodzi do zera i hamowanie odbywa się wybiegiem.
+
+Ustawienie stałego limitu w którąkolwiek stronę psuje jedno albo drugie —
+oba przypadki wystąpiły realnie 2026-08-23 i oba były wyczuwalne na sprzęcie.
+
+Powiązany warunek: wygaszanie na postoju (`_rampedTarget == 0` przy prędkości
+poniżej `STANDSTILL_RPM`) zeruje wyjście i całkę. Próg musi zostać **wąski** —
+przy szerszym zjada całkę także wtedy, gdy ktoś kręci kołem, i trzymanie
+pozycji przestaje działać.
+
+### Zabezpieczenie prądowe ogniw jest realnym ograniczeniem projektowym
+
+Platforma ma zabezpieczenie prądowe na każdym z dwóch ogniw i ono **odcina
+zasilanie w trakcie jazdy**, jeśli sterowanie zażąda za dużo prądu naraz.
+Każda zmiana nastaw PID, limitów lub dynamiki musi być rozpatrzona pod kątem
+prądu, a nie tylko prędkości i przeregulowania. Symulatory w `sim/` liczą prąd
+właśnie po to.
+
+Rząd wielkości do orientacji: rozruch przy 5,61 A przechodził bez odcięcia,
+7,40 A odcinał.
+
 ### Nastawy PID mają nietypowe jednostki
 
 `computePID()` dostaje `dt` w **milisekundach**, nie w sekundach. Dlatego
@@ -108,9 +141,13 @@ Każdy push i pull request jest sprawdzany przez GitHub Actions
 - Pochodna liczona jest z **błędu**, nie z prędkości mierzonej, więc przy
   gwałtownej zmianie zadanej powstaje kopnięcie różniczkujące. Przy obecnym
   `Kd` jest ono realne; łagodzi je ograniczenie przyspieszenia, ale nie usuwa.
-- Prąd przy **hamowaniu** z pełnej prędkości pozostaje wysoki — ograniczenie
-  przyspieszenia go nie dotyczy (i celowo). Jeśli zabezpieczenie ogniw zadziała
-  przy gwałtownym stopie, trzeba ograniczyć rewers PWM.
+- `MAX_RPM = 180` jest wartością **założoną**, nie zmierzoną. Od niej zależy
+  skalowanie drążka i normalizacja kinematyki. Jeśli w praktyce ostatni kawałek
+  skoku drążka nic nie zmienia, wartość jest za wysoka; jeśli platforma nie
+  wykorzystuje pełnej prędkości — za niska.
+- Przekładnia 120:1 okazała się **odwracalna** — koło daje się obrócić ręką przy
+  odciętym zasilaniu. Założenie „przekładnia sama zatrzyma platformę" jest więc
+  prawdziwe tylko częściowo i hamowanie potrzebuje wsparcia od silnika.
 
 ## Jak weryfikować zmiany
 
@@ -118,3 +155,14 @@ Kompilacja i zielone CI mówią tylko tyle, że kod jest poprawny składniowo.
 Zmiany w sterowaniu, kinematyce i PID weryfikuje się wgraniem na sprzęt i jazdą.
 Przyjęty rytm pracy: jedna zamknięta zmiana → build → flash → sprawdzenie na
 podłodze → dopiero następna zmiana.
+
+Pośrednim krokiem są symulatory w `sim/` — uruchamiają prawdziwy `Motor.cpp`
+i `MecanumDrive.cpp` na komputerze z podstawionym zegarem i enkoderem, więc
+pokazują to, czego na jeżdżącej platformie nie widać: przebiegi w czasie, stany
+wewnętrzne regulatora i pobierany prąd. Uruchomienie: `./sim/run.sh`.
+
+Ważne ograniczenie: model napędu jest oszacowany, nie zmierzony. Wiarygodne są
+**porównania** między wariantami, nie wartości bezwzględne. I model odpowiada
+tylko na pytanie, które mu się zada — nastawy PID dobrane 2026-08-23 wyglądały
+świetnie pod względem prędkości i wywaliły zabezpieczenie prądowe, bo ówczesny
+symulator w ogóle nie liczył prądu.
