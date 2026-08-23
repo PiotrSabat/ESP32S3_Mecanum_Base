@@ -2,6 +2,11 @@
 #include <Arduino.h>
 #include "Motor.h"
 
+// UWAGA do nastaw PID: computePID() dostaje dt w MILISEKUNDACH, nie w sekundach.
+// Dlatego Kd = 50 obok Kp = 3 nie jest literówką — w konwencji sekundowej to
+// Kd = 0.05, a Ki = 0.03 to Ki = 30. Przed zmianą którejkolwiek wartości
+// przelicz: Ki_ms = Ki_s / 1000, Kd_ms = Kd_s * 1000.
+
 // --- Definicje konfiguracji dla czterech silników ---
 static const MotorConfig FL_CONFIG = {
     // PWM
@@ -19,9 +24,9 @@ static const MotorConfig FL_CONFIG = {
     .pwmResolution = DEFAULT_PWM_RESOLUTION,
     .pwmFrequency  = DEFAULT_PWM_FREQUENCY,
     // PID
-    .Kp            = 0.55,
+    .Kp            = 3.0,
     .Ki            = 0.03,
-    .Kd            = 0.001,
+    .Kd            = 50.0,
     .outputMin     = MIN_OUT,
     .outputMax     = MAX_OUT,
     // Safety
@@ -41,9 +46,9 @@ static const MotorConfig FR_CONFIG = {
     .gearRatio     = DEFAULT_GEAR_RATIO,
     .pwmResolution = DEFAULT_PWM_RESOLUTION,
     .pwmFrequency  = DEFAULT_PWM_FREQUENCY,
-    .Kp            = 0.55,
+    .Kp            = 3.0,
     .Ki            = 0.03,
-    .Kd            = 0.001,
+    .Kd            = 50.0,
     .outputMin     = MIN_OUT,
     .outputMax     = MAX_OUT,
     // Safety
@@ -63,9 +68,9 @@ static const MotorConfig RL_CONFIG = {
     .gearRatio     = DEFAULT_GEAR_RATIO,
     .pwmResolution = DEFAULT_PWM_RESOLUTION,
     .pwmFrequency  = DEFAULT_PWM_FREQUENCY,
-    .Kp            = 0.55,
+    .Kp            = 3.0,
     .Ki            = 0.03,
-    .Kd            = 0.001,
+    .Kd            = 50.0,
     .outputMin     = MIN_OUT,
     .outputMax     = MAX_OUT,
     // Safety
@@ -85,9 +90,9 @@ static const MotorConfig RR_CONFIG = {
     .gearRatio     = DEFAULT_GEAR_RATIO,
     .pwmResolution = DEFAULT_PWM_RESOLUTION,
     .pwmFrequency  = DEFAULT_PWM_FREQUENCY,
-    .Kp            = 0.55,
+    .Kp            = 3.0,
     .Ki            = 0.03,
-    .Kd            = 0.001,
+    .Kd            = 50.0,
     .outputMin     = MIN_OUT,
     .outputMax     = MAX_OUT,
     // Safety
