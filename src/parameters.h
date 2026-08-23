@@ -85,16 +85,22 @@ constexpr float MAX_ACCEL_RPM_PER_S = 300.0f;
 //
 // Przy przekładni 120:1 platforma i tak zatrzymuje się sama na tarciu, więc
 // hamowanie silnikiem jest tylko dodatkiem, a nie koniecznością.
-// 0 = całkowity brak hamowania silnikiem (czysty wybieg, zero prądu hamowania).
-// Większa wartość = mocniejsze hamowanie, ale wyższy prąd.
-// Zaczynamy od 0, bo to jedyna wartość gwarantująca brak zadziałania
-// zabezpieczenia; przekładnia i tak zatrzymuje platformę. Jeśli hamowanie
-// okaże się zbyt leniwe, podnoś po 50 i sprawdzaj po każdym kroku.
-constexpr int MAX_BRAKING_PWM = 0;
+// Limit jest ZALEŻNY OD PRĘDKOŚCI, bo koszt prądowy momentu przeciwnego też
+// od niej zależy: prąd = (U_baterii + SEM) / R, a SEM rośnie z obrotami.
+// Przy stojącym kole SEM wynosi zero, więc przeciwstawianie się obrotowi jest
+// tanie — i właśnie dzięki temu platforma trzyma pozycję, gdy ktoś próbuje
+// pchnąć koło ręką. Przy pełnej prędkości limit spada do zera, czyli
+// hamowanie odbywa się wybiegiem, bez ryzyka dla zabezpieczenia ogniw.
+//
+// To wartość przy ZEROWEJ prędkości; maleje liniowo do zera przy MAX_RPM.
+// Mniejsza = słabsze trzymanie pozycji, ale niższy prąd.
+constexpr int MAX_HOLDING_PWM = 250;
 
-// Poniżej tej prędkości koło uznajemy za stojące i ograniczenie hamowania
-// przestaje obowiązywać — inaczej nie dałoby się ruszyć w drugą stronę.
-constexpr float BRAKING_RPM_THRESHOLD = 8.0f;
+// Poniżej tej prędkości koło uznajemy za stojące. Próg musi być wyraźnie
+// powyżej szumu pomiaru (przy 960 imp/obr i cyklu 20 ms jeden impuls to
+// ok. 3 RPM), a jednocześnie na tyle niski, by ręczne kręcenie kołem zawsze
+// go przekraczało — inaczej silnik nie zauważyłby, że ktoś go rusza.
+constexpr float STANDSTILL_RPM = 5.0f;
 
 // ----- Failsafe: utrata łączności z padem -----
 // Pad nadaje co 50 ms. Cisza dłuższa niż PAD_LINK_TIMEOUT_MS oznacza zerwane

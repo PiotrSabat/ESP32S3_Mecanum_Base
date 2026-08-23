@@ -113,20 +113,35 @@ void Motor::update() {
     int pwmVal = static_cast<int>(pidOut);
     pwmVal = constrain(pwmVal, -_maxPwmValue, _maxPwmValue);
 
-    // Ograniczenie hamowania przeciwprądem. Jeśli koło kręci się w jedną stronę,
-    // a regulator żąda napięcia w przeciwną, prąd = (U_baterii + SEM) / R, czyli
-    // WIĘCEJ niż przy zwarciu. To właśnie wywalało zabezpieczenie ogniw przy
-    // puszczeniu drążka. Przekładnia 120:1 wyhamuje platformę sama.
-    if (_currentRPM > BRAKING_RPM_THRESHOLD && pwmVal < -MAX_BRAKING_PWM) {
-        pwmVal = -MAX_BRAKING_PWM;
-    } else if (_currentRPM < -BRAKING_RPM_THRESHOLD && pwmVal > MAX_BRAKING_PWM) {
-        pwmVal = MAX_BRAKING_PWM;
+    // Ograniczenie momentu przeciwnego do kierunku obrotu, zależne od prędkości.
+    //
+    // Gdy koło kręci się w jedną stronę, a regulator żąda napięcia w przeciwną,
+    // prąd wynosi (U_baterii + SEM) / R — czyli WIĘCEJ niż przy zwarciu.
+    // Ale SEM rośnie z prędkością, więc ten sam PWM kosztuje tym więcej prądu,
+    // im szybciej kręci się koło. Dlatego limit maleje liniowo z prędkością:
+    //   - koło stoi  -> pełny limit: platforma trzyma pozycję pod naciskiem
+    //   - pełna prędkość -> limit zero: hamowanie wybiegiem, zero ryzyka
+    {
+        float speedFrac = fabsf(_currentRPM) / (float)MAX_RPM;
+        if (speedFrac > 1.0f) speedFrac = 1.0f;
+        int counterLimit = (int)(MAX_HOLDING_PWM * (1.0f - speedFrac));
+
+        if (_currentRPM > STANDSTILL_RPM && pwmVal < -counterLimit) {
+            pwmVal = -counterLimit;
+        } else if (_currentRPM < -STANDSTILL_RPM && pwmVal > counterLimit) {
+            pwmVal = counterLimit;
+        }
     }
 
-    // Postój: przy zerowej zadanej i stojącym kole odcinamy zasilanie i zerujemy
-    // całkę. Bez tego zostaje resztkowe wypełnienie, które nie porusza kołem
-    // (jest poniżej progu tarcia), a mimo to ciągnie prąd i grzeje silnik.
-    if (_rampedTarget == 0.0f && fabsf(_currentRPM) < BRAKING_RPM_THRESHOLD) {
+    // Postój: przy zerowej zadanej i NIERUCHOMYM kole odcinamy zasilanie
+    // i zerujemy całkę. Bez tego zostaje resztkowe wypełnienie, które nie
+    // porusza kołem (jest poniżej progu tarcia), a mimo to grzeje silnik.
+    //
+    // Próg musi być wąski: gdy ktoś kręci kołem ręcznie, prędkość przekracza
+    // STANDSTILL_RPM, warunek nie zachodzi i regulator może się przeciwstawić.
+    // Przy szerszym progu wygaszanie zjadałoby całkę w kółko i platforma nie
+    // trzymałaby pozycji.
+    if (_rampedTarget == 0.0f && fabsf(_currentRPM) < STANDSTILL_RPM) {
         pwmVal = 0;
         _errorSum = 0.0f;
     }
