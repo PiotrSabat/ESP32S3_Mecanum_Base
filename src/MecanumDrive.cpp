@@ -39,9 +39,9 @@ void MecanumDrive::hardStop() {
 
 RPMData MecanumDrive::readRPMs() const {
     RPMData data;
-    data.frontLeft  = _fl->getTargetRPM();
-    data.frontRight = _fr->getTargetRPM();
-    data.rearLeft   = _rl->getTargetRPM();
-    data.rearRight  = _rr->getTargetRPM();
+    data.frontLeft  = _fl->getCurrentRPM();
+    data.frontRight = _fr->getCurrentRPM();
+    data.rearLeft   = _rl->getCurrentRPM();
+    data.rearRight  = _rr->getCurrentRPM();
     return data;
 }

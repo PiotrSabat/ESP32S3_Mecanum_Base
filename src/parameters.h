@@ -18,14 +18,14 @@ constexpr int FR_CHANNEL1 = 2;
 constexpr int FR_CHANNEL2 = 3;
 
 // Rear Left Motor
-constexpr int RL_PIN1 = 13;       // M2A
-constexpr int RL_PIN2 = 14;       // M2B
+constexpr int RL_PIN1 = 13;       // M3A
+constexpr int RL_PIN2 = 14;       // M3B
 constexpr int RL_CHANNEL1 = 4;
 constexpr int RL_CHANNEL2 = 5;
 
 // Rear Right Motor
-constexpr int RR_PIN1 = 15;       // M1A
-constexpr int RR_PIN2 = 16;       // M1B
+constexpr int RR_PIN1 = 15;       // M4A
+constexpr int RR_PIN2 = 16;       // M4B
 constexpr int RR_CHANNEL1 = 6;
 constexpr int RR_CHANNEL2 = 7;
 

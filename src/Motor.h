@@ -6,7 +6,7 @@
 
 /**
  * Struktura konfiguracji silnika.
- * Wszystkie parametry (piny, przełożenie, PWM, PID) definiuje się np. w moto_config.h lub parameters.h
+ * Wszystkie parametry (piny, przełożenie, PWM, PID) definiuje się np. w motor_config.h lub parameters.h
  */
 struct MotorConfig {
     int   pwmPin1;        ///< Pin PWM dla kierunku/prędkości (kanał 1)
@@ -34,7 +34,7 @@ struct MotorConfig {
  * Klasa sterująca pojedyńczym silnikiem DC z enkoderem i regulatorem PID.
  *
  * Użycie:
- * 1. W parameters.h lub moto_config.h zdefiniuj zmienne MotorConfig,
+ * 1. W parameters.h lub motor_config.h zdefiniuj zmienne MotorConfig,
  *    np.:
  *      extern const MotorConfig FL_CONFIG;
  * 2. W main.cpp utwórz obiekt:
