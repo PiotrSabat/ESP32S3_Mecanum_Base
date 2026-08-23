@@ -53,6 +53,27 @@ nie względem tego, co opis zmiany o sobie twierdzi.
 Prawa strona ma `invertDirection = true` w `motor_config.h`, dzięki czemu dla
 każdego koła „dodatnie = do przodu" i powyższe wzory obowiązują bez korekt.
 
+### Ograniczenie przyspieszenia: zjazd do zera musi zostać swobodny
+
+`Motor::update()` prowadzi `_rampedTarget`, która goni `_targetRPM` z limitem
+`MAX_ACCEL_RPM_PER_S`. Limit działa **tylko na oddalanie się od zera**. Ruch
+zadanej w stronę zera przechodzi bez ograniczenia — i to nie jest przeoczenie:
+gdyby ograniczyć symetrycznie, `softStop()` i hamowanie awaryjne po utracie
+łączności wyhamowywałyby dwukrotnie dłużej. Kod wygląda na niepotrzebnie
+zawiły i ktoś będzie chciał go „uprościć". Nie upraszczaj — to jest różnica
+między zatrzymaniem w 320 ms a w 600 ms.
+
+Samo ograniczenie istnieje, bo bez niego regulator przy skoku zadanej wystawia
+w pierwszym cyklu pełne PWM, cztery silniki ruszają jak zwarcie i zabezpieczenie
+prądowe ogniw odcina zasilanie. To się realnie zdarzyło po podniesieniu `Kp`.
+
+### Nastawy PID mają nietypowe jednostki
+
+`computePID()` dostaje `dt` w **milisekundach**, nie w sekundach. Dlatego
+`Kd = 50` obok `Kp = 3` w `motor_config.h` nie jest literówką — w konwencji
+sekundowej to `Kd = 0.05`, a `Ki = 0.03` to `Ki = 30`. Przeliczenie:
+`Ki_ms = Ki_s / 1000`, `Kd_ms = Kd_s * 1000`.
+
 ### Jazda w przód/tył nie testuje kinematyki
 
 Przy `vx = 0` wszystkie koła dostają tę samą wartość, niezależnie od znaków przy
@@ -84,6 +105,12 @@ Każdy push i pull request jest sprawdzany przez GitHub Actions
   `MAX_RPM` i bez normalizacji, gdy suma składowych przekracza zakres.
 - `dt` w PID jest w milisekundach, nie w sekundach — nastawy Ki/Kd nie są
   porównywalne z literaturą ani z zewnętrznymi narzędziami do strojenia.
+- Pochodna liczona jest z **błędu**, nie z prędkości mierzonej, więc przy
+  gwałtownej zmianie zadanej powstaje kopnięcie różniczkujące. Przy obecnym
+  `Kd` jest ono realne; łagodzi je ograniczenie przyspieszenia, ale nie usuwa.
+- Prąd przy **hamowaniu** z pełnej prędkości pozostaje wysoki — ograniczenie
+  przyspieszenia go nie dotyczy (i celowo). Jeśli zabezpieczenie ogniw zadziała
+  przy gwałtownym stopie, trzeba ograniczyć rewers PWM.
 
 ## Jak weryfikować zmiany
 
