@@ -256,6 +256,14 @@ void debugTask(void* parameter) {
             msg.timestamp = millis();
             msg.seq       = ++telemetrySeq;
 
+            // Echo osi — odsyłamy to, co realnie przeczytaliśmy z ramki,
+            // a nie to, co z tego wyszło po przeliczeniu na RPM.
+            msg.echoAxisLX = padCtrl.axisLX;
+            msg.echoAxisLY = padCtrl.axisLY;
+            msg.echoAxisRX = padCtrl.axisRX;
+            msg.echoAxisRY = padCtrl.axisRY;
+            msg.echoSeq    = padCtrl.seq;
+
             for (int i = 0; i < 4; i++) {
                 msg.targetRPM[i]   = (int16_t)lroundf(wheels[i]->getTargetRPM()  * 10.0f);
                 msg.measuredRPM[i] = (int16_t)lroundf(wheels[i]->getCurrentRPM() * 10.0f);
