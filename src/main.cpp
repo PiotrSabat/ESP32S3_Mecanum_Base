@@ -13,11 +13,12 @@
   #include "mac_addresses.h"
 #endif
 
-// Struktura odbierana z pada
-static Message_from_Pad myData_from_Pad;
+// Ostatnia ramka sterująca odebrana z pada
+static Msg_PadControl padCtrl;
 
-// Nowa struktura dla przychodzących danych z monitora
-Message_from_Monitor receivedMonitorData;
+// Ostatnia odebrana komenda zmiany nastaw PID
+static Msg_SetPID receivedPidCmd;
+static volatile bool pidCmdPending = false;
 
 // Mutex chroniący dostęp do danych
 static SemaphoreHandle_t movementMutex;
@@ -31,6 +32,23 @@ SemaphoreHandle_t monitorMutex;
 // (rdzeń 1). Oba dostępy odbywają się pod movementMutex.
 static volatile uint32_t lastPadMsgMs = 0;    // millis() ostatniej ramki z pada
 static volatile bool     padEverSeen  = false; // czy przyszła choć jedna ramka
+static volatile bool     failsafeActive = false; // podglądane przez telemetrię
+
+// ---- Stan protokołu (patrz nagłówek messages.h) ----
+// padProtoOk jest ZATRZASKIEM: raz zobaczona zgodna wersja zostaje. Pojedyncze
+// zgubione HELLO nie może zatrzymać jadącej platformy — od wykrywania ciszy
+// jest failsafe, który mierzy czas od ostatniej ramki sterującej.
+static volatile uint8_t  padProtoVersion = 0;
+static volatile bool     padProtoOk      = false;
+static volatile uint32_t padHelloCount   = 0;
+static volatile uint32_t protoErrorCount = 0;   // ramki nieznanego typu/długości
+static volatile uint8_t  lastUnknownType = 0;
+static volatile int      lastUnknownLen  = 0;
+
+// ---- Statystyka strat ramek z pada (luki w numeracji seq) ----
+static volatile uint32_t padSeqLast   = 0;
+static volatile uint32_t padRecvCount = 0;
+static volatile uint32_t padMissCount = 0;
 
 // Licznik wiadomości wysłanych w debugu
 static int32_t totalMessages = 0;
@@ -63,22 +81,82 @@ static float padAxisToRPM(int16_t raw) {
     return sign * mag * (float)MAX_RPM;
 }
 
-// Callback ESP-NOW
+// Callback ESP-NOW.
+// Typ wiadomości rozpoznajemy po PIERWSZYM BAJCIE, a długość sprawdzamy przed
+// memcpy jako walidację (patrz nagłówek messages.h). Ramka nieznanego typu albo
+// o niezgodnej długości jest LICZONA I ZGŁASZANA, a nie ignorowana po cichu —
+// wcześniej nie odróżnialiśmy „nic nie przyszło" od „przyszło coś obcego".
 void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
-    if (len == sizeof(Message_from_Pad)) {
+    if (len < 1) return;
+    const uint8_t type = incomingData[0];
+
+    switch (type) {
+    case MSG_PAD_CONTROL:
+        if (len != (int)sizeof(Msg_PadControl)) break;
         if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
-            memcpy(&myData_from_Pad, incomingData, sizeof(Message_from_Pad));
+            memcpy(&padCtrl, incomingData, sizeof(Msg_PadControl));
             // Znacznik żywotności łącza — jedyne miejsce, gdzie jest odświeżany
             lastPadMsgMs = millis();
             padEverSeen  = true;
+            // Luka w numeracji = ramki zgubione po drodze. Pierwsza ramka po
+            // starcie tylko synchronizuje licznik. Restart Pada cofa seq, więc
+            // warunek „>" chroni przed policzeniem ujemnej straty.
+            if (padRecvCount > 0 && padCtrl.seq > padSeqLast + 1) {
+                padMissCount += padCtrl.seq - padSeqLast - 1;
+            }
+            padSeqLast = padCtrl.seq;
+            padRecvCount++;
             xSemaphoreGive(movementMutex);
         }
+        return;
+
+    case MSG_HELLO: {
+        if (len != (int)sizeof(Msg_Hello)) break;
+        Msg_Hello hello;
+        memcpy(&hello, incomingData, sizeof(hello));
+        if (hello.role != ROLE_PAD) break;
+        padProtoVersion = hello.protoVersion;
+        padHelloCount++;
+        if (hello.protoVersion == PROTO_VERSION) padProtoOk = true;
+        return;
     }
-    else if (len == sizeof(Message_from_Monitor)) {
+
+    case MSG_SET_PID:
+        if (len != (int)sizeof(Msg_SetPID)) break;
         if (xSemaphoreTake(monitorMutex, portMAX_DELAY) == pdTRUE) {
-            memcpy(&receivedMonitorData, incomingData, sizeof(Message_from_Monitor));
+            memcpy(&receivedPidCmd, incomingData, sizeof(Msg_SetPID));
+            pidCmdPending = true;
             xSemaphoreGive(monitorMutex);
         }
+        return;
+
+    default:
+        break;
+    }
+
+    // Wszystko, czego nie umiemy zinterpretować.
+    protoErrorCount++;
+    lastUnknownType = type;
+    lastUnknownLen  = len;
+}
+
+// Ogłaszanie wersji protokołu. Powtarzane, a nie uzgadniane raz na starcie:
+// ESP-NOW nie zna pojęcia sesji, więc Pad może zniknąć i wrócić po resecie
+// w dowolnej chwili, a wtedy musi dowiedzieć się wszystkiego od nowa.
+void helloTask(void* parameter) {
+    for (;;) {
+        Msg_Hello hello = {};
+        hello.msgType      = MSG_HELLO;
+        hello.protoVersion = PROTO_VERSION;
+        hello.role         = ROLE_PLATFORM;
+        hello.fwBuildId    = FW_BUILD_ID;
+        hello.uptimeMs     = millis();
+        esp_now_send(macPadXiao, reinterpret_cast<const uint8_t*>(&hello), sizeof(hello));
+
+        // Dopóki nie widać Pada — często. Potem rzadko: zgodność wersji nie
+        // zmienia się w trakcie pracy, więc nie ma po co zajmować eteru.
+        vTaskDelay(pdMS_TO_TICKS(padProtoOk ? HELLO_INTERVAL_IDLE_MS
+                                            : HELLO_INTERVAL_SEARCH_MS));
     }
 }
 
@@ -104,11 +182,14 @@ void motorControlTask(void* parameter) {
 
 
         if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
-            x   = myData_from_Pad.L_Joystick_x_message;
-            y   = myData_from_Pad.L_Joystick_y_message;
-            yaw = myData_from_Pad.R_Joystick_x_message;
-            // Odejmowanie na uint32_t jest odporne na przepełnienie millis()
-            linkAlive = padEverSeen &&
+            x   = padCtrl.axisLX;
+            y   = padCtrl.axisLY;
+            yaw = padCtrl.axisRX;
+            // Odejmowanie na uint32_t jest odporne na przepełnienie millis().
+            // padProtoOk w tym warunku znaczy: NIE JEDZIEMY, dopóki nie wiemy,
+            // że Pad mówi tą samą wersją protokołu. Jazda na danych czytanych
+            // według cudzej wersji struktury byłaby gorsza niż stanie.
+            linkAlive = padEverSeen && padProtoOk &&
                         (millis() - lastPadMsgMs) < PAD_LINK_TIMEOUT_MS;
             xSemaphoreGive(movementMutex);
         }
@@ -116,6 +197,7 @@ void motorControlTask(void* parameter) {
         if (linkAlive) {
             if (failsafeEngaged) {
                 failsafeEngaged = false;
+                failsafeActive  = false;
                 Serial.println("✅ Łączność z padem przywrócona");
             }
             // Kinematyka Mecanum — wejście przeliczone z jednostek drążka na RPM
@@ -127,8 +209,14 @@ void motorControlTask(void* parameter) {
             // Potem NIE wołamy drive(), bo setTargetRPM() skasowałoby stan
             // HardStopped i wznowiło jazdę na starych danych z joysticka.
             failsafeEngaged = true;
+            failsafeActive  = true;
             drive.hardStop();
-            Serial.println("⚠️ Utrata łączności z padem — odcięcie napędu");
+            if (!padProtoOk) {
+                Serial.printf("⛔ Pad mówi protokołem v%u, my v%u — nie jadę\n",
+                              (unsigned)padProtoVersion, (unsigned)PROTO_VERSION);
+            } else {
+                Serial.println("⚠️ Utrata łączności z padem — odcięcie napędu");
+            }
         }
 
         // Aktualizacja pętli PID — wołana ZAWSZE, także w failsafe: podtrzymuje
@@ -148,76 +236,87 @@ void motorControlTask(void* parameter) {
     }
 }
 
-// Zadanie debugowe – wypis prędkości i wysyłanie ich przez ESP-NOW
-// Wysyła również licznik wiadomości
+// Zadanie telemetryczne — zbiera stan napędu i wysyła go przez ESP-NOW.
+//
+// UWAGA co do znaków: targetRPM i measuredRPM są w wewnętrznej konwencji
+// silnika, czyli dla prawej strony ODWRÓCONE względem „dodatnie = do przodu"
+// (patrz invertDirection w motor_config.h). Są przez to spójne WZGLĘDEM SIEBIE
+// i o to chodzi — trójka target/measured/pwm ma służyć porównaniu kół, a nie
+// odczytaniu kierunku jazdy.
 void debugTask(void* parameter) {
-     for (;;) {
-        Message_from_Platform_Mecanum debugMsg;
+    Motor* wheels[4] = { &frontLeftMotor, &frontRightMotor,
+                         &rearLeftMotor,  &rearRightMotor };
+    uint32_t telemetrySeq = 0;
+
+    for (;;) {
+        Msg_Telemetry msg = {};          // pola zarezerwowane zostają zerami
+        msg.msgType = MSG_TELEMETRY;
+
         if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
-            debugMsg.timestamp = millis();
-            debugMsg.totalMessages = totalMessages;
+            msg.timestamp = millis();
+            msg.seq       = ++telemetrySeq;
 
-            // Prędkości zadane
-            RPMData target = drive.readRPMs();
-            debugMsg.frontLeftSpeedRPM  = target.frontLeft;
-            debugMsg.frontRightSpeedRPM = target.frontRight;
-            debugMsg.rearLeftSpeedRPM   = target.rearLeft;
-            debugMsg.rearRightSpeedRPM  = target.rearRight;
+            for (int i = 0; i < 4; i++) {
+                msg.targetRPM[i]   = (int16_t)lroundf(wheels[i]->getTargetRPM()  * 10.0f);
+                msg.measuredRPM[i] = (int16_t)lroundf(wheels[i]->getCurrentRPM() * 10.0f);
+                msg.pwm[i]         = (int16_t)wheels[i]->getControlOutput();
+            }
 
-            // Brak surowych liczników – zostawiamy zero
-            debugMsg.frontLeftEncoder  = 0;
-            debugMsg.frontRightEncoder = 0;
-            debugMsg.rearLeftEncoder   = 0;
-            debugMsg.rearRightEncoder  = 0;
+            if (failsafeActive)      msg.flags |= TFLAG_FAILSAFE;
+            if (protoErrorCount > 0) msg.flags |= TFLAG_PROTO_ERROR;
 
-            debugMsg.pitch = 0;
-            debugMsg.roll  = 0;
-            debugMsg.yaw   = 0;
-            debugMsg.batteryVoltage = 0;
+            // Strata ramek z pada liczona w oknie MIĘDZY ramkami telemetrii,
+            // nie od startu — inaczej po godzinie jazdy jedna zgubiona ramka
+            // rozpuszczałaby się w średniej i wskaźnik przestałby cokolwiek mówić.
+            uint32_t total = padRecvCount + padMissCount;
+            msg.padLossPermille = (total > 0)
+                ? (uint8_t)((padMissCount * 1000u) / total > 255u ? 255u
+                                                                  : (padMissCount * 1000u) / total)
+                : 0;
+            padRecvCount = 0;
+            padMissCount = 0;
 
-            // Czas wykonania tasku - debugownie do wykasowania w przyszlosci
-            debugMsg.taskTime = motorCtrlAvgTime / 1000.0f;  // w ms
+            msg.motorCtrlTimeUs = (uint16_t)constrain((long)motorCtrlAvgTime, 0L, 65535L);
 
             xSemaphoreGive(movementMutex);
         }
-        // Wysyłka
-        esp_err_t res = esp_now_send(macMonitorDebug, reinterpret_cast<const uint8_t*>(&debugMsg), sizeof(debugMsg));
+
+        // Adresat na razie bez zmian — przeadresowanie telemetrii na Pada jest
+        // osobnym krokiem, żeby ewentualna usterka miała jedną przyczynę.
+        esp_err_t res = esp_now_send(macMonitorDebug,
+                                     reinterpret_cast<const uint8_t*>(&msg), sizeof(msg));
         if (res == ESP_OK) totalMessages++;
         vTaskDelay(pdMS_TO_TICKS(INTERVAL_DEBUG_OUTPUT));
     }
 }
 
+// Zastosowanie zdalnie przysłanych nastaw PID.
+// Dziedzictwo po porzuconym monitorze — docelowo nadawcą będzie Pad.
 void monitorUpdateTask(void* parameter) {
-  while (1) {
-    if (xSemaphoreTake(monitorMutex, portMAX_DELAY) == pdTRUE) {
-      switch (receivedMonitorData.type) {
-        case MSG_SET_PID:
-          frontLeftMotor.setPID(receivedMonitorData.Kp, receivedMonitorData.Ki, receivedMonitorData.Kd);
-          frontRightMotor.setPID(receivedMonitorData.Kp, receivedMonitorData.Ki, receivedMonitorData.Kd);
-          rearLeftMotor.setPID(receivedMonitorData.Kp, receivedMonitorData.Ki, receivedMonitorData.Kd);
-          rearRightMotor.setPID(receivedMonitorData.Kp, receivedMonitorData.Ki, receivedMonitorData.Kd);
-          Serial.printf("✅ PID updated: Kp=%.3f Ki=%.3f Kd=%.3f\n", 
-                        receivedMonitorData.Kp, receivedMonitorData.Ki, receivedMonitorData.Kd);
-          // Resetujemy typ wiadomości, by nie stosować tego samego pakietu wielokrotnie
-          receivedMonitorData.type = 0;
-          break;
+    Motor* wheels[4] = { &frontLeftMotor, &frontRightMotor,
+                         &rearLeftMotor,  &rearRightMotor };
 
-        // case MSG_SOFT_STOP:
-        // case MSG_RESET_ENCODERS:
-        // itd. – przyszłe rozszerzenia
-
-        default:
-          break;
-      }
-      xSemaphoreGive(monitorMutex);
+    for (;;) {
+        if (xSemaphoreTake(monitorMutex, portMAX_DELAY) == pdTRUE) {
+            if (pidCmdPending) {
+                pidCmdPending = false;   // jedna komenda = jedno zastosowanie
+                for (int i = 0; i < 4; i++) {
+                    if (receivedPidCmd.motorIndex == 0xFF ||
+                        receivedPidCmd.motorIndex == (uint8_t)i) {
+                        wheels[i]->setPID(receivedPidCmd.Kp,
+                                          receivedPidCmd.Ki,
+                                          receivedPidCmd.Kd);
+                    }
+                }
+                Serial.printf("✅ PID: koło %u  Kp=%.3f Ki=%.3f Kd=%.3f\n",
+                              (unsigned)receivedPidCmd.motorIndex,
+                              receivedPidCmd.Kp, receivedPidCmd.Ki, receivedPidCmd.Kd);
+            }
+            xSemaphoreGive(monitorMutex);
+        }
+        vTaskDelay(pdMS_TO_TICKS(300));
     }
-
-    vTaskDelay(300 / portTICK_PERIOD_MS);  // Możesz dostosować interwał
-  }
 }
-
-
-
 
 void setup() {
     Serial.begin(115200);
@@ -262,7 +361,8 @@ void setup() {
     // Zadania FreeRTOS
     xTaskCreatePinnedToCore(motorControlTask, "MotorCtrlTask", 4096, nullptr, 1, nullptr, 1);
     xTaskCreatePinnedToCore(debugTask,        "DebugTask",      4096, nullptr, 1, nullptr, 1);
-    xTaskCreatePinnedToCore(monitorUpdateTask, "MonitorUpdate", 2048, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(monitorUpdateTask, "MonitorUpdate", 2048, nullptr, 1, nullptr, 1);
+    xTaskCreatePinnedToCore(helloTask,        "HelloTask",      2048, nullptr, 1, nullptr, 0);
 
 
     Serial.println("✅ System ready");

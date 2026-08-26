@@ -121,6 +121,12 @@ constexpr int INTERVAL_MOTOR_CONTROL = 20;   // Interval for motor control task
 constexpr int INTERVAL_SENSOR_READ = 25;     // Interval for sensor read task
 constexpr int INTERVAL_DEBUG_OUTPUT = 50;    // Interval for debug/telemetry
 
+// Ogłaszanie wersji protokołu (MSG_HELLO). Dopóki nie widać partnera nadajemy
+// często, żeby po jego restarcie szybko wrócić do jazdy; potem rzadko, bo
+// zgodność wersji nie zmienia się w trakcie pracy.
+constexpr int HELLO_INTERVAL_SEARCH_MS = 1000;
+constexpr int HELLO_INTERVAL_IDLE_MS   = 5000;
+
 
 
 // ===== PID Control Constants =====
