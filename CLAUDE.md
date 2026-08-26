@@ -9,7 +9,9 @@ najszybciej i tworzy fałszywy kontekst.
 
 System składa się z **dwóch** urządzeń:
 
-- **Pad** (Xiao ESP32-S3, repo `Pad_Adafruit_Xiao`) — joysticki, wyświetlacz TFT.
+- **Pad** (Xiao ESP32-S3, repo `Pad_Adafruit_Xiao`, katalog lokalny
+  `~/Documents/PlatformIO/Projects/Pad_I2C_ESP_32_S3` — nazwa katalogu nie
+  odpowiada nazwie repo) — joysticki, wyświetlacz TFT.
   Pełni rolę pilota **oraz** monitora/debugera.
 - **Platforma** (to repo) — cztery silniki DC z enkoderami, PID, kinematyka mecanum.
 
@@ -29,11 +31,31 @@ To są pułapki ciche — kod się zbuduje, CI przejdzie, a system nie zadziała
 
 ### `src/messages.h` musi być identyczny z kopią w repo Pada
 
-`OnDataRecv` rozpoznaje typ wiadomości **wyłącznie** po `len == sizeof(struct)`.
-Zmiana pola w jednym repo bez drugiego nie zepsuje kompilacji — spowoduje ciche
-odrzucanie pakietów, a przy przypadkowej zgodności rozmiarów interpretację
-danych jako niewłaściwej struktury. Każda zmiana struktury to zmiana w **obu**
-repo w tym samym kroku.
+Plik definiuje protokół ESP-NOW i **oba repo muszą mieć go bajt w bajt takiego
+samego**. Zmiana struktury to zmiana w obu repo w tym samym kroku.
+
+Typ wiadomości rozpoznaje **pierwszy bajt** (`msgType`), a długość służy już
+tylko do walidacji przed `memcpy`. Wcześniej typ był rozpoznawany po samym
+`sizeof` — działało, dopóki rozmiary struktur były różne, a przy przypadkowej
+zgodności dawało interpretację danych jako niewłaściwej struktury, po cichu.
+
+Trzy rzeczy pilnują dziś tego niezmiennika:
+
+- `static_assert` na rozmiarze każdej struktury — przypadkowa edycja w jednym
+  repo staje się **błędem kompilacji**, a nie ciszą w eterze;
+- `MSG_HELLO` wymieniane okresowo przez obie strony niesie `PROTO_VERSION`;
+- **platforma nie ruszy**, dopóki nie zobaczy od Pada HELLO ze zgodną wersją
+  (`padProtoOk` w warunku `linkAlive`). Odmowa jazdy jest tu funkcją
+  bezpieczeństwa: gorsza od stania jest jazda na danych czytanych według
+  cudzej wersji struktury.
+
+HELLO są **powtarzane**, a nie uzgadniane raz na starcie, bo ESP-NOW nie zna
+pojęcia sesji — każda strona może zniknąć i wrócić po resecie w dowolnej chwili.
+Z tego samego powodu `msgType` leci w każdej ramce: pierwszy pakiet po restarcie
+partnera musi być interpretowalny bez żadnej wcześniejszej wiedzy.
+
+Pola prądu, pozycji i IMU w `Msg_Telemetry` są **zarezerwowane** — wypełniane
+zerami do czasu, aż pojawią się boczniki i IMU.
 
 ### Żadne dwa koła nie mogą mieć identycznego wzoru kinematyki
 
@@ -128,14 +150,16 @@ Każdy push i pull request jest sprawdzany przez GitHub Actions
 
 ## Znane luki
 
-- **Brak failsafe.** Utrata łączności z Padem nie zatrzymuje robota — jedzie
-  dalej z ostatnimi odebranymi wartościami joysticka. `Message_from_Pad.timeStamp`
-  jest pod to przygotowany, ale nieużywany.
-- `setTargetRPM()` kasuje stan `HardStopped`, a `motorControlTask` woła `drive()`
-  bezwarunkowo co 20 ms — więc `hardStop()` zostałby anulowany w następnym cyklu.
-  Do naprawy zanim pojawi się przycisk E-stop.
-- Wejście z pada trafia do `drive()` jako surowe `int16_t`, bez skalowania do
-  `MAX_RPM` i bez normalizacji, gdy suma składowych przekracza zakres.
+- **Failsafe hamuje wybiegiem, a przekładnia okazała się odwracalna.** Po ciszy
+  dłuższej niż `PAD_LINK_TIMEOUT_MS` `motorControlTask` woła `hardStop()` i
+  przestaje wołać `drive()`. Komentarz przy tym kodzie uzasadnia wybieg tym, że
+  „przekładnia 120:1 zatrzyma platformę sama" — a to założenie jest prawdziwe
+  tylko częściowo (patrz punkt o odwracalności niżej). Nie sprawdzone na
+  pochyłości; jeśli platforma odjeżdża, wybieg trzeba zastąpić `softStop()`.
+- `setTargetRPM()` kasuje stan `HardStopped`. Dziś to nie szkodzi, bo jedyny
+  `hardStop()` (failsafe) idzie w parze z zaprzestaniem wołania `drive()`.
+  Wróci jako pułapka przy przycisku E-stop — wtedy stan musi być kasowany
+  jawnie, a nie jako efekt uboczny zadania prędkości.
 - `dt` w PID jest w milisekundach, nie w sekundach — nastawy Ki/Kd nie są
   porównywalne z literaturą ani z zewnętrznymi narzędziami do strojenia.
 - Pochodna liczona jest z **błędu**, nie z prędkości mierzonej, więc przy
