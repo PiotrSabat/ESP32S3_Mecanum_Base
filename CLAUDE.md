@@ -57,6 +57,15 @@ partnera musi być interpretowalny bez żadnej wcześniejszej wiedzy.
 Pola prądu, pozycji i IMU w `Msg_Telemetry` są **zarezerwowane** — wypełniane
 zerami do czasu, aż pojawią się boczniki i IMU.
 
+Echo osi (`echoAxis*`, `echoSeq`) wygląda na redundancję i nią nie jest.
+Zgodna wersja protokołu dowodzi tylko, że obie strony mają ten sam plik —
+**nie dowodzi, że platforma czyta właściwe pola**. Przesunięcie o dwa bajty
+daje zielone „OK" i robota jadącego bokiem zamiast do przodu. Odesłanie osi
+w postaci, w jakiej przyszły (przed martwą strefą i skalowaniem) zamyka tę
+lukę, a Pad rysuje z tego kropkę w pierścieniu drążka: w środku = łącze żyje
+i nadąża, wleczona = opóźnienie, skacząca = straty. Nie kasuj tych pól jako
+„duplikatu danych z pada".
+
 ### Żadne dwa koła nie mogą mieć identycznego wzoru kinematyki
 
 Obowiązuje (`MecanumDrive::drive`):
