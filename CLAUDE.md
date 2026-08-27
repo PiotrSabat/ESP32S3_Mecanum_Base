@@ -56,7 +56,15 @@ Z tego samego powodu `msgType` leci w każdej ramce: pierwszy pakiet po restarci
 partnera musi być interpretowalny bez żadnej wcześniejszej wiedzy.
 
 Pola prądu, pozycji i IMU w `Msg_Telemetry` są **zarezerwowane** — wypełniane
-zerami do czasu, aż pojawią się boczniki i IMU.
+zerami do czasu, aż pojawią się boczniki i IMU. Są wśród nich `gyroYawRate`
+i `accelX/accelY`, bo koła w poślizgu kręcą się szybciej, niż jedzie robot:
+prędkość kątowa z żyroskopu porównana z tą policzoną z kół daje miarę poślizgu,
+a przyspieszenia z kół nie da się odczytać w ogóle.
+
+`targetRPM` i `measuredRPM` jadą w **konwencji robota** — dodatnie = do przodu
+dla każdego koła. Odwrócenie prawej strony (`invertDirection`) jest odkręcane
+w `telemetryTask`. Bez tego Pad musiałby znać okablowanie platformy, żeby
+odwrócić mieszanie mecanum.
 
 Echo osi (`echoAxis*`, `echoSeq`) wygląda na redundancję i nią nie jest.
 Zgodna wersja protokołu dowodzi tylko, że obie strony mają ten sam plik —

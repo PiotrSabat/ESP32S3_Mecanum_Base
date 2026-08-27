@@ -13,6 +13,11 @@
   #include "mac_addresses.h"
 #endif
 
+// Skalowanie wskaźników na Padzie opiera się na MAX_RPM_TELEMETRY z messages.h.
+// Ten warunek pilnuje, żeby nie rozjechało się z rzeczywistym MAX_RPM platformy.
+static_assert(MAX_RPM_TELEMETRY == MAX_RPM * 10,
+              "MAX_RPM_TELEMETRY w messages.h nie zgadza sie z MAX_RPM!");
+
 // Ostatnia ramka sterująca odebrana z pada
 static Msg_PadControl padCtrl;
 
@@ -257,6 +262,8 @@ void motorControlTask(void* parameter) {
 void telemetryTask(void* parameter) {
     Motor* wheels[4] = { &frontLeftMotor, &frontRightMotor,
                          &rearLeftMotor,  &rearRightMotor };
+    const bool wheelInverted[4] = { FL_CONFIG.invertDirection, FR_CONFIG.invertDirection,
+                                    RL_CONFIG.invertDirection, RR_CONFIG.invertDirection };
     uint32_t telemetrySeq = 0;
 
     for (;;) {
@@ -275,9 +282,13 @@ void telemetryTask(void* parameter) {
             msg.echoAxisRY = padCtrl.axisRY;
             msg.echoSeq    = padCtrl.seq;
 
+            // Odkręcamy invertDirection: w eter idzie konwencja ROBOTA, czyli
+            // dodatnie = do przodu dla każdego koła. Dzięki temu Pad może
+            // odwrócić mieszanie mecanum, nie wiedząc nic o okablowaniu.
             for (int i = 0; i < 4; i++) {
-                msg.targetRPM[i]   = (int16_t)lroundf(wheels[i]->getTargetRPM()  * 10.0f);
-                msg.measuredRPM[i] = (int16_t)lroundf(wheels[i]->getCurrentRPM() * 10.0f);
+                const float sign = wheelInverted[i] ? -1.0f : 1.0f;
+                msg.targetRPM[i]   = (int16_t)lroundf(sign * wheels[i]->getTargetRPM()  * 10.0f);
+                msg.measuredRPM[i] = (int16_t)lroundf(sign * wheels[i]->getCurrentRPM() * 10.0f);
                 msg.pwm[i]         = (int16_t)wheels[i]->getControlOutput();
             }
 
