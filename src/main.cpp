@@ -289,9 +289,9 @@ void debugTask(void* parameter) {
             xSemaphoreGive(movementMutex);
         }
 
-        // Adresat na razie bez zmian — przeadresowanie telemetrii na Pada jest
-        // osobnym krokiem, żeby ewentualna usterka miała jedną przyczynę.
-        esp_err_t res = esp_now_send(macMonitorDebug,
+        // Telemetria idzie do Pada — to on przejął rolę monitora. Osobny moduł
+        // debugujący został porzucony i nikt pod macMonitorDebug nie słucha.
+        esp_err_t res = esp_now_send(macPadXiao,
                                      reinterpret_cast<const uint8_t*>(&msg), sizeof(msg));
         if (res == ESP_OK) totalMessages++;
         vTaskDelay(pdMS_TO_TICKS(INTERVAL_DEBUG_OUTPUT));
