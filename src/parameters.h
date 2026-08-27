@@ -121,11 +121,17 @@ constexpr uint32_t PAD_LINK_TIMEOUT_MS = 300;
 
 constexpr int INTERVAL_MOTOR_CONTROL = 20;   // Interval for motor control task
 constexpr int INTERVAL_SENSOR_READ = 25;     // Interval for sensor read task
-// Telemetria 50 Hz, w tempie pętli sterowania. Przy 20 Hz ta pętla, wysyłka
-// z Pada i rysowanie na Padzie były trzema niezsynchronizowanymi okresami
-// 50 ms — odstępy między aktualizacjami kropki echa skakały od 0 do 100 ms.
-// 88 B * 50 Hz = 4,4 kB/s, przy limicie ramki ESP-NOW 250 B to nic.
-constexpr int INTERVAL_DEBUG_OUTPUT = 20;    // Interval for debug/telemetry
+// Telemetria NIE chodzi na własnym timerze — jest odpowiedzią na ramkę z Pada.
+// Własny timer oznaczał trzecią niezsynchronizowaną pętlę i przypadkową fazę
+// wobec wysyłki z Pada, przez co droga w obie strony skakała o cały okres.
+// Odpowiadanie od razu daje krótszy i STABILNY czas reakcji przy mniejszej
+// liczbie ramek — czyli mniej prądu i mniej ciepła. Ten sam kierunek jest
+// wymuszony przez docelowe łącze (ELRS Air Port): żadnej ramki „bo minął czas".
+constexpr uint32_t TELEMETRY_EVERY_N_PAD_FRAMES = 2;  // Pad 50 Hz -> telemetria 25 Hz
+
+// Awaryjne tempo, gdy z Pada nic nie przychodzi — żeby telemetria nie zamilkła
+// zupełnie i dało się zobaczyć stan platformy także po utracie łączności.
+constexpr uint32_t TELEMETRY_IDLE_MS = 200;
 
 // Ogłaszanie wersji protokołu (MSG_HELLO). Dopóki nie widać partnera nadajemy
 // często, żeby po jego restarcie szybko wrócić do jazdy; potem rzadko, bo

@@ -64,6 +64,10 @@ static Motor rearRightMotor(RR_CONFIG);
 // Kontroler Mecanum – odpowiada za kierunek i rozdział prędkości
 static MecanumDrive drive(&frontLeftMotor, &frontRightMotor, &rearLeftMotor, &rearRightMotor);
 
+// Uchwyt zadania telemetrii — budzone po odebraniu ramki z Pada, zamiast
+// chodzić na własnym timerze.
+static TaskHandle_t telemetryTaskHandle = nullptr;
+
 // Peer info dla ESP-NOW
 static esp_now_peer_info_t peerPad;
 
@@ -86,6 +90,7 @@ static float padAxisToRPM(int16_t raw) {
 // o niezgodnej długości jest LICZONA I ZGŁASZANA, a nie ignorowana po cichu —
 // wcześniej nie odróżnialiśmy „nic nie przyszło" od „przyszło coś obcego".
 void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
+    static uint32_t padFrameCounter = 0;
     if (len < 1) return;
     const uint8_t type = incomingData[0];
 
@@ -106,6 +111,13 @@ void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
             padSeqLast = padCtrl.seq;
             padRecvCount++;
             xSemaphoreGive(movementMutex);
+        }
+        // Telemetria jako ODPOWIEDŹ, nie jako niezależny timer. Wysyłka nie
+        // odbywa się tutaj — z callbacku ESP-NOW nie należy nadawać — tylko
+        // budzimy zadanie, które to zrobi w swoim kontekście.
+        if (++padFrameCounter % TELEMETRY_EVERY_N_PAD_FRAMES == 0 &&
+            telemetryTaskHandle != nullptr) {
+            xTaskNotifyGive(telemetryTaskHandle);
         }
         return;
 
@@ -242,7 +254,7 @@ void motorControlTask(void* parameter) {
 // (patrz invertDirection w motor_config.h). Są przez to spójne WZGLĘDEM SIEBIE
 // i o to chodzi — trójka target/measured/pwm ma służyć porównaniu kół, a nie
 // odczytaniu kierunku jazdy.
-void debugTask(void* parameter) {
+void telemetryTask(void* parameter) {
     Motor* wheels[4] = { &frontLeftMotor, &frontRightMotor,
                          &rearLeftMotor,  &rearRightMotor };
     uint32_t telemetrySeq = 0;
@@ -292,7 +304,10 @@ void debugTask(void* parameter) {
         esp_err_t res = esp_now_send(macPadXiao,
                                      reinterpret_cast<const uint8_t*>(&msg), sizeof(msg));
         if (res == ESP_OK) totalMessages++;
-        vTaskDelay(pdMS_TO_TICKS(INTERVAL_DEBUG_OUTPUT));
+
+        // Czekamy na kolejną ramkę z Pada. Timeout jest siatką bezpieczeństwa:
+        // gdy Pad milczy, telemetria idzie rzadko, ale nie zamiera.
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(TELEMETRY_IDLE_MS));
     }
 }
 
@@ -361,7 +376,8 @@ void setup() {
     }
     // Zadania FreeRTOS
     xTaskCreatePinnedToCore(motorControlTask, "MotorCtrlTask", 4096, nullptr, 1, nullptr, 1);
-    xTaskCreatePinnedToCore(debugTask,        "DebugTask",      4096, nullptr, 1, nullptr, 1);
+    xTaskCreatePinnedToCore(telemetryTask,    "TelemetryTask",  4096, nullptr, 1,
+                            &telemetryTaskHandle, 1);
     xTaskCreatePinnedToCore(pidCommandTask, "PidCommand", 2048, nullptr, 1, nullptr, 1);
     xTaskCreatePinnedToCore(helloTask,        "HelloTask",      2048, nullptr, 1, nullptr, 0);
 
