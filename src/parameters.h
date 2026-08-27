@@ -103,8 +103,10 @@ constexpr int MAX_HOLDING_PWM = 250;
 constexpr float STANDSTILL_RPM = 5.0f;
 
 // ----- Failsafe: utrata łączności z padem -----
-// Pad nadaje co 50 ms. Cisza dłuższa niż PAD_LINK_TIMEOUT_MS oznacza zerwane
-// łącze (6 zgubionych ramek) i uruchamia automatyczne hamowanie.
+// Pad nadaje co 20 ms. Cisza dłuższa niż PAD_LINK_TIMEOUT_MS oznacza zerwane
+// łącze (15 zgubionych ramek) i uruchamia automatyczne hamowanie. Wartość
+// została w milisekundach bez zmian mimo przyspieszenia nadawania: dla
+// bezpieczeństwa liczy się czas jazdy bez kontroli, a nie liczba ramek.
 // Za mała wartość = fałszywe alarmy przy chwilowych zakłóceniach,
 // za duża = robot dłużej jedzie bez kontroli. Strojone na sprzęcie.
 constexpr uint32_t PAD_LINK_TIMEOUT_MS = 300;
@@ -119,7 +121,11 @@ constexpr uint32_t PAD_LINK_TIMEOUT_MS = 300;
 
 constexpr int INTERVAL_MOTOR_CONTROL = 20;   // Interval for motor control task
 constexpr int INTERVAL_SENSOR_READ = 25;     // Interval for sensor read task
-constexpr int INTERVAL_DEBUG_OUTPUT = 50;    // Interval for debug/telemetry
+// Telemetria 50 Hz, w tempie pętli sterowania. Przy 20 Hz ta pętla, wysyłka
+// z Pada i rysowanie na Padzie były trzema niezsynchronizowanymi okresami
+// 50 ms — odstępy między aktualizacjami kropki echa skakały od 0 do 100 ms.
+// 88 B * 50 Hz = 4,4 kB/s, przy limicie ramki ESP-NOW 250 B to nic.
+constexpr int INTERVAL_DEBUG_OUTPUT = 20;    // Interval for debug/telemetry
 
 // Ogłaszanie wersji protokołu (MSG_HELLO). Dopóki nie widać partnera nadajemy
 // często, żeby po jego restarcie szybko wrócić do jazdy; potem rzadko, bo

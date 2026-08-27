@@ -66,7 +66,6 @@ static MecanumDrive drive(&frontLeftMotor, &frontRightMotor, &rearLeftMotor, &re
 
 // Peer info dla ESP-NOW
 static esp_now_peer_info_t peerPad;
-static esp_now_peer_info_t peerDebugMonitor;
 
 // Przeliczenie osi joysticka (±JOYSTICK_MAX z pada) na prędkość w RPM.
 // Poza martwą strefą skala jest liniowa i rozciągnięta tak, by tuż za jej
@@ -348,11 +347,6 @@ void setup() {
     peerPad.channel = ESP_CHANNEL;
     peerPad.encrypt = false;
     esp_now_add_peer(&peerPad);
-
-    memcpy(peerDebugMonitor.peer_addr, macMonitorDebug, 6);
-    peerDebugMonitor.channel = ESP_CHANNEL;
-    peerDebugMonitor.encrypt = false;
-    esp_now_add_peer(&peerDebugMonitor);
 
     // Mutexy
     
