@@ -19,9 +19,10 @@ Osobny moduł „debug monitor" i aplikacja na iPhone zostały **porzucone**
 (decyzja z 2026-08-23), żeby szybciej dowieźć działającą całość. Rolę monitora
 przejął Pad, bo ma własny wyświetlacz i tak czy owak jest w rękach operatora.
 
-Telemetria idzie już do Pada. Kod, który wciąż pamięta o monitorze —
-`monitorUpdateTask`, `Msg_SetPID`, peer `macMonitorDebug` — jest przeznaczony
-do usunięcia albo przeadresowania na Pada. Nie rozwijaj go.
+Ślady po monitorze zostały usunięte: telemetria idzie do Pada, peer i adres
+`macMonitorDebug` zniknęły, a `monitorUpdateTask` nazywa się `pidCommandTask`.
+Została sama funkcja — zdalne nastawy PID (`MSG_SET_PID`) — której nadawcą
+będzie Pad.
 
 Komunikacja SPI została porzucona razem z monitorem. Jedynym kanałem jest ESP-NOW.
 

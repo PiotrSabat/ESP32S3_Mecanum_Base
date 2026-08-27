@@ -23,8 +23,8 @@ static volatile bool pidCmdPending = false;
 // Mutex chroniący dostęp do danych
 static SemaphoreHandle_t movementMutex;
 
-// Mutex chroniący dostęp do danych z monitora
-SemaphoreHandle_t monitorMutex;
+// Mutex chroniący dostęp do przysłanych nastaw PID
+SemaphoreHandle_t pidMutex;
 
 
 // ---- Failsafe: nadzór łączności z padem ----
@@ -122,10 +122,10 @@ void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
 
     case MSG_SET_PID:
         if (len != (int)sizeof(Msg_SetPID)) break;
-        if (xSemaphoreTake(monitorMutex, portMAX_DELAY) == pdTRUE) {
+        if (xSemaphoreTake(pidMutex, portMAX_DELAY) == pdTRUE) {
             memcpy(&receivedPidCmd, incomingData, sizeof(Msg_SetPID));
             pidCmdPending = true;
-            xSemaphoreGive(monitorMutex);
+            xSemaphoreGive(pidMutex);
         }
         return;
 
@@ -288,8 +288,7 @@ void debugTask(void* parameter) {
             xSemaphoreGive(movementMutex);
         }
 
-        // Telemetria idzie do Pada — to on przejął rolę monitora. Osobny moduł
-        // debugujący został porzucony i nikt pod macMonitorDebug nie słucha.
+        // Telemetria idzie do Pada — to on przejął rolę monitora.
         esp_err_t res = esp_now_send(macPadXiao,
                                      reinterpret_cast<const uint8_t*>(&msg), sizeof(msg));
         if (res == ESP_OK) totalMessages++;
@@ -297,14 +296,14 @@ void debugTask(void* parameter) {
     }
 }
 
-// Zastosowanie zdalnie przysłanych nastaw PID.
-// Dziedzictwo po porzuconym monitorze — docelowo nadawcą będzie Pad.
-void monitorUpdateTask(void* parameter) {
+// Zastosowanie zdalnie przysłanych nastaw PID (MSG_SET_PID).
+// Nadawcą będzie Pad; nazwy po porzuconym monitorze zostały usunięte.
+void pidCommandTask(void* parameter) {
     Motor* wheels[4] = { &frontLeftMotor, &frontRightMotor,
                          &rearLeftMotor,  &rearRightMotor };
 
     for (;;) {
-        if (xSemaphoreTake(monitorMutex, portMAX_DELAY) == pdTRUE) {
+        if (xSemaphoreTake(pidMutex, portMAX_DELAY) == pdTRUE) {
             if (pidCmdPending) {
                 pidCmdPending = false;   // jedna komenda = jedno zastosowanie
                 for (int i = 0; i < 4; i++) {
@@ -319,7 +318,7 @@ void monitorUpdateTask(void* parameter) {
                               (unsigned)receivedPidCmd.motorIndex,
                               receivedPidCmd.Kp, receivedPidCmd.Ki, receivedPidCmd.Kd);
             }
-            xSemaphoreGive(monitorMutex);
+            xSemaphoreGive(pidMutex);
         }
         vTaskDelay(pdMS_TO_TICKS(300));
     }
@@ -334,7 +333,7 @@ void setup() {
     // WiFi task (rdzeń 0) może wywołać OnDataRecv natychmiast po rejestracji,
     // podczas gdy setup() jeszcze trwa na rdzeniu 1.
     movementMutex = xSemaphoreCreateMutex();
-    monitorMutex = xSemaphoreCreateMutex();
+    pidMutex = xSemaphoreCreateMutex();
 
     if (esp_now_init() != ESP_OK) {
         Serial.println("❌ ESP-NOW init failed");
@@ -356,14 +355,14 @@ void setup() {
     }
     
     
-    if (!monitorMutex) {
-        Serial.println("❌ Nie udało się utworzyć mutexu do monitora");
+    if (!pidMutex) {
+        Serial.println("❌ Nie udało się utworzyć mutexu do komend PID");
         while (1) vTaskDelay(100);
     }
     // Zadania FreeRTOS
     xTaskCreatePinnedToCore(motorControlTask, "MotorCtrlTask", 4096, nullptr, 1, nullptr, 1);
     xTaskCreatePinnedToCore(debugTask,        "DebugTask",      4096, nullptr, 1, nullptr, 1);
-    xTaskCreatePinnedToCore(monitorUpdateTask, "MonitorUpdate", 2048, nullptr, 1, nullptr, 1);
+    xTaskCreatePinnedToCore(pidCommandTask, "PidCommand", 2048, nullptr, 1, nullptr, 1);
     xTaskCreatePinnedToCore(helloTask,        "HelloTask",      2048, nullptr, 1, nullptr, 0);
 
 
