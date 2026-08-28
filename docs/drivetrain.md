@@ -74,7 +74,26 @@ linear speed a wheel must have for the platform to rotate at angular rate ω is
     lx + ly = (0.12 + 0.15) / 2 = 0.135 m
 
 Hence `RPM01_TO_DEG_S` in `messages.h`. At full turn deflection this works out
-to roughly **240 °/s**, i.e. two thirds of a rotation per second.
+to **120 °/s**, i.e. one third of a rotation per second.
+
+**The measurement disagrees, and the reason is not yet known.** Five platform
+rotations in 13 s (2026-08-28, both directions, repeatable) is **138.5 °/s** —
+about 15 % more than the geometry predicts.
+
+The obvious explanations have been ruled out. The spacings above were measured
+centre-to-centre and re-confirmed. Roller slip would push the measurement the
+other way, making it *lower* than predicted, not higher. And a pure rotation
+never triggers the mixer's normalisation, so no wheel is being scaled.
+
+It is left open rather than explained away; it is a candidate for the first
+real job for the IMU, whose gyroscope measures the platform's angular rate
+directly instead of inferring it from the wheels. Until then, treat 120 °/s as
+what the constants say and 138.5 °/s as what the floor says.
+
+An earlier version of this file claimed 240 °/s. That figure was correct back
+when `MAX_RPM` was 180 and it was carried over unchanged when the encoder fix
+halved the speed scale — the same class of stale-number error this document
+exists to prevent.
 
 **Caveat:** the **sideways** speed comes out optimistic. Mecanum rollers slip
 sideways by the very principle they work on, so real `vx` is smaller than the

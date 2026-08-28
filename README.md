@@ -30,8 +30,10 @@ PID loop driving PWM outputs.
   on a desktop machine, so controller behaviour and current draw can be
   inspected without a robot on the floor
 
-Top speed is **measured, not assumed**: 0.28 m/s (90 RPM at the wheel), about
-240 °/s in rotation.
+Top speed is **measured, not assumed**: 0.28 m/s (90 RPM at the wheel).
+Rotation works out to 120 °/s from the geometry, while the stopwatch says
+138.5 °/s — a discrepancy that is documented rather than explained away, in
+[docs/drivetrain.md](docs/drivetrain.md).
 
 IMU-based orientation and odometry are planned but not implemented — the fields
 are already reserved in the telemetry frame.
