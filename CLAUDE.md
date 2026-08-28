@@ -248,6 +248,17 @@ Budowanie: `pio run` (PlatformIO, środowisko `esp32-s3-devkitc-1`).
 Każdy push i pull request jest sprawdzany przez GitHub Actions
 (`.github/workflows/build.yml`).
 
+## Język: kod po angielsku, ten plik po polsku
+
+Komentarze w `src/` i `sim/`, README oraz `docs/` są **po angielsku** — repo
+jest publiczne i ma trafić do ludzi spoza tego biurka. Ten plik zostaje po
+polsku, bo jest roboczy i czyta go Piotr. Nie ujednolicaj tego w żadną stronę
+bez pytania.
+
+Ściągawki sprzętowe, żeby nie zgadywać: [docs/drivetrain.md](docs/drivetrain.md)
+(koło, geometria, przeliczenia RPM) i
+[docs/current-sensing.md](docs/current-sensing.md) (moduły do pomiaru prądu).
+
 ## Znane luki
 
 - **Failsafe hamuje wybiegiem, a przekładnia okazała się odwracalna.** Po ciszy

@@ -38,5 +38,5 @@ User_Setup.h
 
 # Always track README
 !README.md
-# Wyniki kompilacji symulatorow
+# Simulator build output
 sim/build/
