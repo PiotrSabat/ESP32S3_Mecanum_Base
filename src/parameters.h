@@ -101,10 +101,17 @@ constexpr float TURN_GAIN = (1.0f - TURN_INNER_RATIO_FULL) /
                             (1.0f + TURN_INNER_RATIO_FULL);
 
 // Krzywa drążka obrotu: 0 = liniowa, 1 = czysto sześcienna. Zagęszcza
-// rozdzielczość wokół środka, nie ruszając końcówki zakresu. Podniesiona
-// razem z TURN_GAIN, żeby mocniejsza końcówka nie zabrała łagodnych łuków
-// z okolic środka drążka.
-constexpr float TURN_EXPO = 0.75f;
+// rozdzielczość wokół środka, NIE RUSZAJĄC końcówki zakresu — pełne wychylenie
+// daje to samo niezależnie od tej wartości.
+//
+// Ustawiona na czystą sześcienną, bo przy 0.75 jedna piąta skoku drążka dawała
+// już wyraźny zakręt (koła wewnętrzne spadały z 90 na 64 RPM) i sterowanie
+// przypominało przycisk zamiast drążka. Przy 1.0 ta sama jedna piąta to spadek
+// do 86 RPM, czyli delikatna korekta kursu — a ostry zakręt nadal czeka
+// w końcówce skoku.
+//
+// Gdyby środek wyszedł zbyt martwy, wartością pośrednią jest 0.9.
+constexpr float TURN_EXPO = 1.0f;
 
 // Poniżej tej prędkości jazdy drążek wraca do roli obrotu w miejscu. Bez tego
 // przy zatrzymanej platformie nie dałoby się obrócić w ogóle, bo łuk przy
