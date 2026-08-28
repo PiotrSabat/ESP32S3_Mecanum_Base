@@ -48,7 +48,15 @@ static volatile bool     padProtoOk      = false;
 static volatile uint32_t protoErrorCount = 0;   // frames of unknown type/length
 
 // ---- Pad frame loss (gaps in the seq numbering) ----
+// padSynced and padRecvCount are deliberately SEPARATE. padSynced says "we know
+// what the previous seq was"; padRecvCount is the size of the current
+// statistics window and gets cleared on every telemetry frame. Using one
+// variable for both meant that clearing the window also cleared the
+// synchronisation, so the first frame after each telemetry send was never
+// checked for a gap — at TELEMETRY_EVERY_N_PAD_FRAMES = 2 that is every second
+// transition, and reported loss came out roughly half of the truth.
 static volatile uint32_t padSeqLast   = 0;
+static volatile bool     padSynced    = false;
 static volatile uint32_t padRecvCount = 0;
 static volatile uint32_t padMissCount = 0;
 
@@ -89,13 +97,14 @@ void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
             // Liveness mark for the link — the only place it is refreshed
             lastPadMsgMs = millis();
             padEverSeen  = true;
-            // A gap in the numbering means frames lost on the way. The first
-            // frame after startup only synchronises the counter. A pad restart
-            // rewinds seq, so the ">" guard keeps a negative loss out.
-            if (padRecvCount > 0 && padCtrl.seq > padSeqLast + 1) {
+            // A gap in the numbering means frames lost on the way. The very
+            // first frame after startup only synchronises the counter. A pad
+            // restart rewinds seq, so the ">" guard keeps a negative loss out.
+            if (padSynced && padCtrl.seq > padSeqLast + 1) {
                 padMissCount += padCtrl.seq - padSeqLast - 1;
             }
             padSeqLast = padCtrl.seq;
+            padSynced  = true;
             padRecvCount++;
             xSemaphoreGive(movementMutex);
         }
@@ -283,7 +292,7 @@ void telemetryTask(void* parameter) {
                 ? (uint8_t)((padMissCount * 1000u) / total > 255u ? 255u
                                                                   : (padMissCount * 1000u) / total)
                 : 0;
-            padRecvCount = 0;
+            padRecvCount = 0;      // window only — padSynced/padSeqLast survive
             padMissCount = 0;
 
             msg.motorCtrlTimeUs = (uint16_t)constrain((long)motorCtrlAvgTime, 0L, 65535L);
