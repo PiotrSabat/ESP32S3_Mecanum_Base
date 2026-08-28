@@ -93,6 +93,17 @@ nie względem tego, co opis zmiany o sobie twierdzi.
 Prawa strona ma `invertDirection = true` w `motor_config.h`, dzięki czemu dla
 każdego koła „dodatnie = do przodu" i powyższe wzory obowiązują bez korekt.
 
+### `motorControlTask` musi używać `vTaskDelayUntil`
+
+`vTaskDelay` odmierza przerwę **od zakończenia pracy**, więc okres pętli wynosi
+zadane 20 ms **plus czas wykonania**. Realnie dawało to 21 ms i regulator
+pracował z innym `dt`, niż zakładają nastawy. Objaw był subtelny i wyszedł
+dopiero z telemetrii: zmierzone obroty siadały na siatce kwantyzacji
+przesuniętej względem właściwej.
+
+Zamiana wygląda na kosmetykę, a przesuwa efektywne `Ki` i `Kd` o kilka procent.
+Nie wracaj do `vTaskDelay` „dla uproszczenia".
+
 ### Ograniczenie przyspieszenia: zjazd do zera musi zostać swobodny
 
 `Motor::update()` prowadzi `_rampedTarget`, która goni `_targetRPM` z limitem

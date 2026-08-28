@@ -189,6 +189,9 @@ void motorControlTask(void* parameter) {
     bool linkAlive = false;
     bool failsafeEngaged = false;  // zatrzask: hamowanie zlecane raz na epizod
 
+    // vTaskDelayUntil, NIE vTaskDelay — patrz komentarz przy końcu pętli.
+    TickType_t lastWake = xTaskGetTickCount();
+
     for (;;) {
         //-----------debugowanie: czas wykonania tasku
         uint64_t start = esp_timer_get_time();  // ✱ początek pomiaru
@@ -248,7 +251,13 @@ void motorControlTask(void* parameter) {
         //--------------koniec debugowania
 
 
-        vTaskDelay(pdMS_TO_TICKS(INTERVAL_MOTOR_CONTROL));
+        // Okres MUSI być stały, dlatego vTaskDelayUntil zamiast vTaskDelay.
+        // vTaskDelay odmierza przerwę OD ZAKOŃCZENIA pracy, więc okres wynosił
+        // 20 ms plus czas wykonania pętli — realnie 21 ms. Regulator dostawał
+        // przez to inne dt, niż zakładały nastawy, a zmierzone obroty siadały
+        // na siatce kwantyzacji przesuniętej względem tej właściwej (stąd
+        // „zawsze dziewiątka" na końcu odczytu RPM na Padzie).
+        vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(INTERVAL_MOTOR_CONTROL));
     }
 }
 
