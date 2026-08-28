@@ -280,6 +280,41 @@ bez pytania.
   odciętym zasilaniu. Założenie „przekładnia sama zatrzyma platformę" jest więc
   prawdziwe tylko częściowo i hamowanie potrzebuje wsparcia od silnika.
 
+## Świadomie niezrobione (przegląd zewnętrzny 2026-08-28)
+
+Rzeczy znalezione i **celowo** zostawione, z powodem. Lista odrzuconych
+z uzasadnieniem jest warta więcej niż lista zrobionych.
+
+- **`targetRPM` w telemetrii to zadana OPERATORA, nie zadana REGULATORA.**
+  PID reguluje na `_rampedTarget` (po ograniczniku przyspieszenia), a w eter
+  idzie `_targetRPM`. Przy każdym ruszaniu trójka target/measured/pwm pokazuje
+  uchyb, którego regulator nie ma — wygląda to jak niedomagający PID, a jest
+  ogranicznik działający zgodnie z projektem. Mylące dokładnie w chwili
+  strojenia. Zmiana źródła to jedna metoda `getRampedTargetRPM()`; **czeka na
+  decyzję Piotra**, bo to pytanie „co ma znaczyć ta liczba na ekranie", a nie
+  pytanie techniczne. Argument za zmianą: pozycja drążka jest już widoczna jako
+  kropka echa, więc intencja operatora ma drugie źródło, a regulator nie ma
+  żadnego.
+- **Anti-windup nie widzi ogranicznika momentu przeciwnego.** `computePID()`
+  decyduje o przyjęciu całki na podstawie ±511, a docięcie przez `counterLimit`
+  następuje już po jego wyjściu. Przy hamowaniu DO ZERA ratuje to wygaszanie na
+  postoju (stąd zielony symulator `braking`), ale przy zjeździe do prędkości
+  niezerowej (90 → 20 RPM) całka może się ładować w trakcie wybiegu.
+  **Niezweryfikowane** — najpierw test w `sim/`, poprawka tylko jeśli test coś
+  pokaże. `counterLimit` zależy wyłącznie od `_currentRPM`, znanego przed
+  wywołaniem PID, więc dałoby się podać go jako efektywne granice cyklu.
+- **`TFLAG_HARD_STOPPED` i `TFLAG_PWM_SAT` nigdy nie są ustawiane.** `Motor` nie
+  wystawia stanu ani informacji o nasyceniu. Albo dorobić dwa gettery, albo
+  usunąć bity — **usunięcie NIE wymaga podbicia `PROTO_VERSION`**, bo to stałe
+  bitowe, a nie pola: układ struktury się nie zmienia.
+- **`softStop()` jest nieosiągalny w firmware.** Wołany tylko w symulatorze;
+  failsafe woła `hardStop()`. Lekarstwo na odwracalną przekładnię (punkt wyżej)
+  jest więc napisane i przetestowane, tylko niepodłączone. Nie podłączać bez
+  próby na pochyłości.
+- **Pola protokołu bez konsumenta:** `rssiFromPad`, `rssiFromPlatform`,
+  `platformLossPermille`, `motorCtrlTimeUs`, `mode`. Do podłączenia albo
+  usunięcia, każde osobno. (`padLossPermille` i `flags` zostały podłączone.)
+
 ## Jak weryfikować zmiany
 
 Kompilacja i zielone CI mówią tylko tyle, że kod jest poprawny składniowo.
