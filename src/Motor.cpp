@@ -3,8 +3,8 @@
 
 Motor::Motor(const MotorConfig& config)
     : _cfg(config),
-      _maxPwmValue((1 << config.pwmResolution) - 1),
-      _encoder()
+      _encoder(),
+      _maxPwmValue((1 << config.pwmResolution) - 1)
 {
     setupPWM();
     setupEncoder();

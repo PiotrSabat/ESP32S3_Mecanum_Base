@@ -19,7 +19,7 @@ FAILED=0
 
 for t in $TESTS; do
     printf '\n=========== %s ===========\n' "$t"
-    if ! g++ -std=c++17 -w $INC -o "$OUT/$t" "$SIM/$t.cpp" $SRC; then
+    if ! g++ -std=c++17 -Wall -Wextra $INC -o "$OUT/$t" "$SIM/$t.cpp" $SRC; then
         echo "COMPILATION FAILED: $t"
         FAILED=1
         continue

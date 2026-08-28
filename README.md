@@ -123,7 +123,7 @@ decision was made.
 Requires [PlatformIO](https://platformio.org/).
 
 ```bash
-git clone https://github.com/PiotrSabat/ESP32S3_Mecanum_Base.git
+git clone https://github.com/CableAndCode/ESP32S3_Mecanum_Base.git
 cd ESP32S3_Mecanum_Base
 pio run -t upload
 ```

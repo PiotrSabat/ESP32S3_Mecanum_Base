@@ -51,7 +51,7 @@ int main(){
         check(resisting>30, "the motor resists being turned by hand");
         check(maxResist<-50, "the resistance is noticeable (PWM below -50)");
 
-        float emf=K_E*forced, v=fabsf((float)maxResist)/MAXPWM*V_BAT;
+        float emf=K_E*forced;
         float duty=fabsf((float)maxResist)/MAXPWM;
         printf("   Current at that resistance: %.2f A per motor (EMF only %.2f V at %.0f RPM)\n",
                duty*(V_BAT+emf)/R_W, emf, forced);

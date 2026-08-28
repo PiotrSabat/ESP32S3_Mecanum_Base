@@ -92,11 +92,13 @@ int main(){
         //    This is the heart of the fix - they used to sit at zero and the
         //    platform dragged itself round like a tank with one track.
         float wFast = padAxisToOmega(S, 0.0f, FULL);
-        float fl=FULL+wFast, fr=FULL-wFast, rl=FULL-wFast, rr=FULL+wFast;
+        // On a turn one side gets FULL + wFast and the other FULL - wFast, so
+        // the inner pair is fully described by one number.
+        float innerFull = FULL - wFast;
         printf("   full throttle + full turn     -> omega %6.1f, inner %6.1f RPM\n",
-               wFast, fr);
-        check(wFast > FULL, "at full speed the turn term exceeds MAX_RPM");
-        check(fr < -1.0f,   "the inner wheels counter-rotate instead of stopping");
+               wFast, innerFull);
+        check(wFast > FULL,      "at full speed the turn term exceeds MAX_RPM");
+        check(innerFull < -1.0f, "the inner wheels counter-rotate instead of stopping");
 
         // c) A small deflection at full throttle must give a GENTLE arc:
         //    both sides still forward, the outer one faster.
