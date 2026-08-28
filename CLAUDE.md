@@ -93,6 +93,24 @@ nie względem tego, co opis zmiany o sobie twierdzi.
 Prawa strona ma `invertDirection = true` w `motor_config.h`, dzięki czemu dla
 każdego koła „dodatnie = do przodu" i powyższe wzory obowiązują bez korekt.
 
+### Enkoder liczy ZLICZENIA, nie impulsy
+
+Producent silnika podaje **8 impulsów na obrót wału**, czyli 960 na obrót koła
+po przekładni 120:1. Ale `ESP32Encoder::attachHalfQuad` ustawia
+`pos_mode = DEC` i `neg_mode = INC`, więc zlicza **oba zbocza** kanału A —
+**dwa zliczenia na jeden impuls**. `DEFAULT_GEAR_RATIO` musi więc wynosić
+**1920**, a nie 960.
+
+Ten błąd siedział w repo od początku i **nie dawał żadnego objawu w kodzie**:
+regulator poprawnie dochodził do zadanej, telemetria była spójna sama ze sobą,
+symulatory przechodziły. Platforma po prostu jechała **dwa razy wolniej**, niż
+twierdziła. Wyszło dopiero z zestawienia ekranu ze stoperem: 0,55 m/s na
+wyświetlaczu, 3 m w 10,3 s na podłodze.
+
+Wniosek na przyszłość: liczba impulsów w karcie katalogowej i liczba zliczeń
+w bibliotece to **dwie różne rzeczy**, a pomyłka między nimi jest niewidoczna
+dla wszystkiego poza pomiarem w świecie fizycznym.
+
 ### `motorControlTask` musi używać `vTaskDelayUntil`
 
 `vTaskDelay` odmierza przerwę **od zakończenia pracy**, więc okres pętli wynosi
@@ -154,9 +172,17 @@ Rząd wielkości do orientacji: rozruch przy 5,61 A przechodził bez odcięcia,
 ### Nastawy PID mają nietypowe jednostki
 
 `computePID()` dostaje `dt` w **milisekundach**, nie w sekundach. Dlatego
-`Kd = 50` obok `Kp = 3` w `motor_config.h` nie jest literówką — w konwencji
-sekundowej to `Kd = 0.05`, a `Ki = 0.03` to `Ki = 30`. Przeliczenie:
+`Kd = 100` obok `Kp = 6` w `motor_config.h` nie jest literówką — w konwencji
+sekundowej to `Kd = 0.1`, a `Ki = 0.06` to `Ki = 60`. Przeliczenie:
 `Ki_ms = Ki_s / 1000`, `Kd_ms = Kd_s * 1000`.
+
+Wzmocnienia zostały **podwojone** razem z poprawką liczby zliczeń enkodera.
+Zmierzona prędkość i zadana zmalały wtedy dwukrotnie, więc błąd też — podwojenie
+wzmocnień sprawia, że wyjście regulatora pozostaje **identyczne**. To nie było
+strojenie, tylko zmiana jednostek. Z tego samego powodu przeskalowane zostały
+`MAX_RPM` (180 → 90), `MAX_ACCEL_RPM_PER_S` (300 → 150) i `STANDSTILL_RPM`
+(5 → 2,5). Limit momentu przeciwnego wychodzi na tym bez zmian, bo zależy od
+ilorazu `prędkość / MAX_RPM`, a oba człony zmalały dwukrotnie.
 
 ### Jazda w przód/tył nie testuje kinematyki
 
@@ -194,10 +220,6 @@ Każdy push i pull request jest sprawdzany przez GitHub Actions
 - Pochodna liczona jest z **błędu**, nie z prędkości mierzonej, więc przy
   gwałtownej zmianie zadanej powstaje kopnięcie różniczkujące. Przy obecnym
   `Kd` jest ono realne; łagodzi je ograniczenie przyspieszenia, ale nie usuwa.
-- `MAX_RPM = 180` jest wartością **założoną**, nie zmierzoną. Od niej zależy
-  skalowanie drążka i normalizacja kinematyki. Jeśli w praktyce ostatni kawałek
-  skoku drążka nic nie zmienia, wartość jest za wysoka; jeśli platforma nie
-  wykorzystuje pełnej prędkości — za niska.
 - Przekładnia 120:1 okazała się **odwracalna** — koło daje się obrócić ręką przy
   odciętym zasilaniu. Założenie „przekładnia sama zatrzyma platformę" jest więc
   prawdziwe tylko częściowo i hamowanie potrzebuje wsparcia od silnika.
@@ -214,8 +236,12 @@ i `MecanumDrive.cpp` na komputerze z podstawionym zegarem i enkoderem, więc
 pokazują to, czego na jeżdżącej platformie nie widać: przebiegi w czasie, stany
 wewnętrzne regulatora i pobierany prąd. Uruchomienie: `./sim/run.sh`.
 
-Ważne ograniczenie: model napędu jest oszacowany, nie zmierzony. Wiarygodne są
-**porównania** między wariantami, nie wartości bezwzględne. I model odpowiada
+Ważne ograniczenie: model napędu jest oszacowany, nie zmierzony — choć od
+2026-08-28 uwzględnia obciążenie (`I_LOAD`) i dzięki temu trafia w zmierzoną
+prędkość maksymalną (~90 RPM) oraz w rząd wielkości prądu rozruchu (6 A wobec
+zmierzonych 5,61 A przechodzących i 7,40 A odcinających). Wcześniej model
+zaniżał prąd prawie czterokrotnie. Wiarygodne są nadal głównie **porównania**
+między wariantami, nie wartości bezwzględne. I model odpowiada
 tylko na pytanie, które mu się zada — nastawy PID dobrane 2026-08-23 wyglądały
 świetnie pod względem prędkości i wywaliły zabezpieczenie prądowe, bo ówczesny
 symulator w ogóle nie liczył prądu.

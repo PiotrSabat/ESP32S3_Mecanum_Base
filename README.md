@@ -10,7 +10,7 @@ IMU-based orientation estimation and odometry are planned but not implemented ye
 - **ESP32-S3** as the main controller
 - **4 DC motors with encoders** for mecanum drive (X, Y, rotation)
 - **PWM + DIR motor drivers**
-- **Incremental encoders**, ~960 pulses per wheel revolution
+- **Incremental encoders**, 960 pulses (1920 counted edges) per wheel revolution
 - **Closed-loop speed control** — independent PID per motor, tunable at runtime
 - **FreeRTOS** task-based architecture
 - **ESP-NOW link to the control pad**, carrying commands one way and telemetry the other

@@ -3,9 +3,14 @@
 #include "Motor.h"
 
 // UWAGA do nastaw PID: computePID() dostaje dt w MILISEKUNDACH, nie w sekundach.
-// Dlatego Kd = 50 obok Kp = 3 nie jest literówką — w konwencji sekundowej to
-// Kd = 0.05, a Ki = 0.03 to Ki = 30. Przed zmianą którejkolwiek wartości
+// Dlatego Kd = 100 obok Kp = 6 nie jest literówką — w konwencji sekundowej to
+// Kd = 0.1, a Ki = 0.06 to Ki = 60. Przed zmianą którejkolwiek wartości
 // przelicz: Ki_ms = Ki_s / 1000, Kd_ms = Kd_s * 1000.
+//
+// Wzmocnienia zostały PODWOJONE 2026-08-28 razem z poprawką liczby zliczeń
+// enkodera. Zmierzona prędkość i zadana zmalały wtedy dwukrotnie, więc błąd
+// też — podwojenie wzmocnień sprawia, że wyjście regulatora pozostaje
+// identyczne. To nie jest strojenie, tylko zmiana jednostek.
 
 // --- Definicje konfiguracji dla czterech silników ---
 static const MotorConfig FL_CONFIG = {
@@ -24,9 +29,9 @@ static const MotorConfig FL_CONFIG = {
     .pwmResolution = DEFAULT_PWM_RESOLUTION,
     .pwmFrequency  = DEFAULT_PWM_FREQUENCY,
     // PID
-    .Kp            = 3.0,
-    .Ki            = 0.03,
-    .Kd            = 50.0,
+    .Kp            = 6.0,
+    .Ki            = 0.06,
+    .Kd            = 100.0,
     .outputMin     = MIN_OUT,
     .outputMax     = MAX_OUT,
     // Safety
@@ -46,9 +51,9 @@ static const MotorConfig FR_CONFIG = {
     .gearRatio     = DEFAULT_GEAR_RATIO,
     .pwmResolution = DEFAULT_PWM_RESOLUTION,
     .pwmFrequency  = DEFAULT_PWM_FREQUENCY,
-    .Kp            = 3.0,
-    .Ki            = 0.03,
-    .Kd            = 50.0,
+    .Kp            = 6.0,
+    .Ki            = 0.06,
+    .Kd            = 100.0,
     .outputMin     = MIN_OUT,
     .outputMax     = MAX_OUT,
     // Safety
@@ -68,9 +73,9 @@ static const MotorConfig RL_CONFIG = {
     .gearRatio     = DEFAULT_GEAR_RATIO,
     .pwmResolution = DEFAULT_PWM_RESOLUTION,
     .pwmFrequency  = DEFAULT_PWM_FREQUENCY,
-    .Kp            = 3.0,
-    .Ki            = 0.03,
-    .Kd            = 50.0,
+    .Kp            = 6.0,
+    .Ki            = 0.06,
+    .Kd            = 100.0,
     .outputMin     = MIN_OUT,
     .outputMax     = MAX_OUT,
     // Safety
@@ -90,9 +95,9 @@ static const MotorConfig RR_CONFIG = {
     .gearRatio     = DEFAULT_GEAR_RATIO,
     .pwmResolution = DEFAULT_PWM_RESOLUTION,
     .pwmFrequency  = DEFAULT_PWM_FREQUENCY,
-    .Kp            = 3.0,
-    .Ki            = 0.03,
-    .Kd            = 50.0,
+    .Kp            = 6.0,
+    .Ki            = 0.06,
+    .Kd            = 100.0,
     .outputMin     = MIN_OUT,
     .outputMax     = MAX_OUT,
     // Safety

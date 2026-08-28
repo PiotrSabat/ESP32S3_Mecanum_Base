@@ -50,7 +50,11 @@ constexpr int RR_ENCODER_B = 18;
 // ===== Encoder and Motor Configuration =====
 
 
-constexpr int MAX_RPM = 180;             // Maximum motor speed
+// Prędkość maksymalna koła. Wartość ZMIERZONA (3 m w 10,3 s oraz 5 obrotów
+// platformy w 13 s, 2026-08-28), nie założona. Silnik ma 160 RPM bez
+// obciążenia przy 6 V, pod obciążeniem wychodzi około 95 — stąd 90 z zapasem,
+// żeby regulator miał czym dociągnąć do zadanej.
+constexpr int MAX_RPM = 90;              // Maximum motor speed
 
 // ===== Wejście z pada =====
 // Pad zwraca wartości z zakresu ±511 (getCorrectedValue sprowadza się do
@@ -74,7 +78,9 @@ constexpr uint32_t DEFAULT_HARD_STOP_DURATION_MS = 50;  // Czas domyślnego hard
 // Zjazd zadanej do zera NIE jest ograniczany — hamowanie awaryjne musi zostać
 // tak szybkie, jak było.
 // Mniejsza wartość = łagodniejszy rozruch i mniejszy prąd, ale wolniejsza reakcja.
-constexpr float MAX_ACCEL_RPM_PER_S = 300.0f;
+// Wartość przeskalowana razem z MAX_RPM (było 300 przy MAX_RPM = 180), żeby
+// fizyczne przyspieszenie pozostało dokładnie takie samo.
+constexpr float MAX_ACCEL_RPM_PER_S = 150.0f;
 
 // ----- Ograniczenie hamowania silnikiem (hamowanie przeciwprądem) -----
 // Gdy regulator chce podać napięcie PRZECIWNE do bieżącego kierunku obrotu
@@ -97,10 +103,11 @@ constexpr float MAX_ACCEL_RPM_PER_S = 300.0f;
 constexpr int MAX_HOLDING_PWM = 250;
 
 // Poniżej tej prędkości koło uznajemy za stojące. Próg musi być wyraźnie
-// powyżej szumu pomiaru (przy 960 imp/obr i cyklu 20 ms jeden impuls to
-// ok. 3 RPM), a jednocześnie na tyle niski, by ręczne kręcenie kołem zawsze
-// go przekraczało — inaczej silnik nie zauważyłby, że ktoś go rusza.
-constexpr float STANDSTILL_RPM = 5.0f;
+// powyżej szumu pomiaru (przy 1920 zliczeniach na obrót i cyklu 20 ms jedno
+// zliczenie to ok. 1,6 RPM), a jednocześnie na tyle niski, by ręczne kręcenie
+// kołem zawsze go przekraczało — inaczej silnik nie zauważyłby, że ktoś go rusza.
+// Przeskalowany razem z MAX_RPM (było 5.0), żeby próg fizyczny się nie zmienił.
+constexpr float STANDSTILL_RPM = 2.5f;
 
 // ----- Failsafe: utrata łączności z padem -----
 // Pad nadaje co 20 ms. Cisza dłuższa niż PAD_LINK_TIMEOUT_MS oznacza zerwane
@@ -163,6 +170,16 @@ constexpr int ESP_MAX_DATA_SIZE = 250;  // Maximum data size for ESP-NOW
 
 
 // ===== Default Motor Configuration =====
-constexpr int DEFAULT_GEAR_RATIO = 960; // Gear ratio for the motors
+// ZLICZENIA enkodera na obrót KOŁA — nie impulsy!
+// Producent podaje 8 impulsów na obrót wału silnika, czyli 960 na obrót koła
+// po przekładni 120:1. Ale ESP32Encoder w trybie attachHalfQuad zlicza OBA
+// ZBOCZA kanału A (pos_mode=DEC, neg_mode=INC), więc na jeden impuls przypadają
+// DWA zliczenia: 960 * 2 = 1920.
+//
+// Wpisane tu wcześniej 960 sprawiało, że platforma mierzyła prędkość DWA RAZY
+// ZA WYSOKĄ. Regulator dochodził do zadanej, która w rzeczywistości była
+// połową żądanej, i o tym nie wiedział — wykryte dopiero stoperem: ekran
+// pokazywał 0,55 m/s, a 3 m zajmowały 10,3 s, czyli 0,29 m/s.
+constexpr int DEFAULT_GEAR_RATIO = 1920;
 constexpr int DEFAULT_PWM_RESOLUTION = 9; // PWM resolution (9 bits)
 constexpr int DEFAULT_PWM_FREQUENCY = 20000; // PWM frequency (20 kHz)
