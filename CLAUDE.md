@@ -244,9 +244,19 @@ szablon `src/mac_addresses.h` z wyzerowanymi adresami. Dzięki temu CI i każdy
 
 Nie usuwaj szablonu i nie commituj prywatnej kopii.
 
+W `.gitignore` obowiązuje wzorzec `*private*`, a nie konkretna nazwa pliku.
+Konkretna nazwa nie chroni przed literówką, a literówka już raz wystąpiła:
+`mac_adersses_private.cpp` trafił do historii z prawdziwymi adresami.
+
 Budowanie: `pio run` (PlatformIO, środowisko `esp32-s3-devkitc-1`).
 Każdy push i pull request jest sprawdzany przez GitHub Actions
 (`.github/workflows/build.yml`).
+
+Wersja platformy jest **przypięta**: `espressif32 @ ~7.0.1`. To nie jest
+ostrożność na wyrost — 7.0.1 ciągnie Arduino core 2.0.17, a core 3.x **usunął**
+`ledcSetup()` i `ledcAttachPin()`, których używa `Motor.cpp`. Bez przypięcia
+build padłby kiedyś u wszystkich naraz, bez zmiany jednej linijki w kodzie.
+Oba repo mają tę samą wersję, żeby nie rozjechały się w czasie.
 
 ## Język: kod po angielsku, ten plik po polsku
 
@@ -314,6 +324,19 @@ z uzasadnieniem jest warta więcej niż lista zrobionych.
 - **Pola protokołu bez konsumenta:** `rssiFromPad`, `rssiFromPlatform`,
   `platformLossPermille`, `motorCtrlTimeUs`, `mode`. Do podłączenia albo
   usunięcia, każde osobno. (`padLossPermille` i `flags` zostały podłączone.)
+- **Prawdziwe adresy MAC zostają w historii gita.** Commit `748f7d8` dodał
+  `src/mac_adersses_private.cpp` — z literówką w nazwie, więc `.gitignore` go
+  nie złapał. Plik jest usunięty w HEAD, ale historia go pamięta. Ryzyko
+  praktyczne bliskie zeru (to adresy rozgłaszane w eterze przy każdej ramce
+  ESP-NOW), natomiast `git filter-repo` plus wymuszony push psuje istniejące
+  klony. **Świadomie odpuszczone**; wzorzec `*private*` w `.gitignore` chroni
+  przed powtórzeniem. Do zrobienia raz, w obu repo, jeśli kiedyś w ogóle.
+- **Porządki na GitHubie:** PR #5 „Pr refactor pid v3" wisi otwarty od czerwca
+  2025, a praca została w międzyczasie zastąpiona; trzy issues po polsku
+  z grudnia 2024 i czerwca 2025, z czego dwa opisują kierunki właśnie
+  porzucone. Zamknięte issue z jednozdaniowym powodem jest lepszą wizytówką
+  niż otwarte bez. **Wymaga `gh` albo przeglądarki — nie da się zrobić
+  z tego katalogu.**
 
 ## Jak weryfikować zmiany
 
@@ -321,6 +344,11 @@ Kompilacja i zielone CI mówią tylko tyle, że kod jest poprawny składniowo.
 Zmiany w sterowaniu, kinematyce i PID weryfikuje się wgraniem na sprzęt i jazdą.
 Przyjęty rytm pracy: jedna zamknięta zmiana → build → flash → sprawdzenie na
 podłodze → dopiero następna zmiana.
+
+Symulatory kompilują się z **`-Wall -Wextra`**, nie z `-w`. Poprzednia flaga
+wyciszała wszystko; po włączeniu ostrzeżeń wyszły martwe zmienne i `-Wreorder`
+w konstruktorze `Motor`. To jest tania klasa błędów do złapania — nie wracaj
+do `-w` „dla czystszego wyjścia".
 
 Pośrednim krokiem są symulatory w `sim/` — uruchamiają prawdziwy `Motor.cpp`
 i `MecanumDrive.cpp` na komputerze z podstawionym zegarem i enkoderem, więc
