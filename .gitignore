@@ -5,6 +5,7 @@
 .pio/
 .pio/libdeps/
 include/
+.dev_notes/
 
 .vscode/
 .vscode/*.db
@@ -37,3 +38,5 @@ User_Setup.h
 
 # Always track README
 !README.md
+# Simulator build output
+sim/build/

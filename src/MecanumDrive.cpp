@@ -1,118 +1,61 @@
 #include "MecanumDrive.h"
 
-MecanumDrive::MecanumDrive(
-    MotorDriverCytronH_Bridge* frontLeft,
-    MotorDriverCytronH_Bridge* frontRight,
-    MotorDriverCytronH_Bridge* rearLeft,
-    MotorDriverCytronH_Bridge* rearRight
-) {
-    _frontLeft = frontLeft;
-    _frontRight = frontRight;
-    _rearLeft = rearLeft;
-    _rearRight = rearRight;
-}
+MecanumDrive::MecanumDrive(Motor* fl, Motor* fr, Motor* rl, Motor* rr)
+    : _fl(fl), _fr(fr), _rl(rl), _rr(rr) {}
 
-void MecanumDrive::move(int x, int y, int yaw) {
-    applyDeadZone(x, y, yaw);
+void MecanumDrive::drive(float vx, float vy, float omega) {
+    // Mecanum kinematics. NO TWO WHEELS MAY SHARE A PATTERN: if two rows of
+    // this mixing matrix become identical it loses rank and the robot becomes
+    // physically unable to drive sideways — it turns instead. That bug reached
+    // the repo once already (commit d64fbf7, fixed in 76f6cb2) and got through
+    // review because the commit message matched the diff exactly. Check these
+    // four lines against mecanum maths, not against what a change claims.
+    float frontLeftRPM  = vy + vx + omega;
+    float frontRightRPM = vy - vx - omega;
+    float rearLeftRPM   = vy - vx + omega;
+    float rearRightRPM  = vy + vx - omega;
 
-    int frontLeft  = y + x + yaw;
-    int frontRight = y - x - yaw;
-    int rearLeft   = y - x + yaw;
-    int rearRight  = y + x - yaw;
-
-    // Normalize motor power
-    normalizeMotorPower(frontLeft, frontRight, rearLeft, rearRight);
-
-    // Control motors
-    _frontLeft->setSpeed(frontLeft);
-    _frontRight->setSpeed(frontRight);
-    _rearLeft->setSpeed(rearLeft);
-    _rearRight->setSpeed(rearRight);
-}
-
-void MecanumDrive::applyDeadZone(int& x, int& y, int& yaw) {
-    if (abs(x) < DEAD_ZONE) x = 0;
-    if (abs(y) < DEAD_ZONE) y = 0;
-    if (abs(yaw) < DEAD_ZONE) yaw = 0;
-}
-
-// Prevent exceeding the maximum speed; can be removed if PID works correctly
-void MecanumDrive::normalizeMotorPower(int& fl, int& fr, int& rl, int& rr) {
-    int maxPower = max(max(abs(fl), abs(fr)), max(abs(rl), abs(rr)));
-    if (maxPower > MAX_SPEED) {
-        fl = fl * MAX_SPEED / maxPower;
-        fr = fr * MAX_SPEED / maxPower;
-        rl = rl * MAX_SPEED / maxPower;
-        rr = rr * MAX_SPEED / maxPower;
-    }
-}
-
-// New methods: attempts to integrate PID control
-
-float MecanumDrive::convertToRPM(int padValue) {
-    // If value is within the dead zone, return 0
-    if (abs(padValue) < DEAD_ZONE) {
-        return 0.0;
+    // Normalisation. The axes add up, so a diagonal drive with rotation can
+    // demand three times MAX_RPM. Left alone, the wheels would saturate at
+    // DIFFERENT moments and stop holding their relative proportions — and it
+    // is those proportions that determine the direction of travel, so the
+    // platform would go somewhere other than where the stick points.
+    //
+    // Dividing ALL FOUR by the same factor limits the speed but preserves the
+    // proportions, i.e. keeps the direction faithful.
+    float maxMag = fmaxf(fmaxf(fabsf(frontLeftRPM), fabsf(frontRightRPM)),
+                         fmaxf(fabsf(rearLeftRPM),  fabsf(rearRightRPM)));
+    if (maxMag > (float)MAX_RPM) {
+        float scale = (float)MAX_RPM / maxMag;
+        frontLeftRPM  *= scale;
+        frontRightRPM *= scale;
+        rearLeftRPM   *= scale;
+        rearRightRPM  *= scale;
     }
 
-    // Preserve sign (direction)
-    int sign = (padValue > 0) ? 1 : -1;
-
-    // Effective value is absolute value minus the dead zone
-    int effectiveValue = abs(padValue) - DEAD_ZONE;
-
-    // Maximum effective value; assuming input range is -511 to 511
-    int maxEffectiveValue = MAX_SPEED - DEAD_ZONE;
-
-    // Protect against division by zero
-    if (maxEffectiveValue == 0) {
-        return 0.0;
-    }
-
-    // Map effective value to RPM range: if effectiveValue == maxEffectiveValue then RPM == MAX_RPM
-    float rpm = (effectiveValue / (float)maxEffectiveValue) * MAX_RPM;
-    return sign * rpm;
+    _fl->setTargetRPM(frontLeftRPM);
+    _fr->setTargetRPM(frontRightRPM);
+    _rl->setTargetRPM(rearLeftRPM);
+    _rr->setTargetRPM(rearRightRPM);
 }
 
-void MecanumDrive::moveRPM(int x, int y, int yaw) {
-    // Apply dead zone
-    applyDeadZone(x, y, yaw);
-
-    normalizeInputVector(x, y, yaw);
-    
-    // Compute raw values for each wheel
-    int rawFL = y + x + yaw;
-    int rawFR = y - x - yaw;
-    int rawRL = y - x + yaw;
-    int rawRR = y + x - yaw;
-
-    // Perform standard movement
-    move(x, y, yaw);
-
-    // Convert controller values to RPM
-    rpmFL = convertToRPM(rawFL);
-    rpmFR = convertToRPM(rawFR);
-    rpmRL = convertToRPM(rawRL);
-    rpmRR = convertToRPM(rawRR);
+void MecanumDrive::update() {
+    _fl->update();
+    _fr->update();
+    _rl->update();
+    _rr->update();
 }
 
-// Normalize input vector (x, y, yaw); if its magnitude > MAX_INPUT (e.g., 511), scale all components
-void MecanumDrive::normalizeInputVector(int &x, int &y, int &yaw) {
-    float norm = sqrt((float)x * x + (float)y * y + (float)yaw * yaw);
-    const float MAX_INPUT_PWM = 511.0; // maximum allowed input magnitude
-    if (norm > MAX_INPUT_PWM) {
-        float scale = MAX_INPUT_PWM / norm;
-        x = (int)(x * scale);
-        y = (int)(y * scale);
-        yaw = (int)(yaw * scale);
-    }
+void MecanumDrive::softStop(uint32_t durationMs) {
+    _fl->softStop(durationMs);
+    _fr->softStop(durationMs);
+    _rl->softStop(durationMs);
+    _rr->softStop(durationMs);
 }
 
-RPMData MecanumDrive::readRPMs() {
-    RPMData data;
-    data.frontLeft = rpmFL;
-    data.frontRight = rpmFR;
-    data.rearLeft = rpmRL;
-    data.rearRight = rpmRR;
-    return data;
+void MecanumDrive::hardStop() {
+    _fl->hardStop();
+    _fr->hardStop();
+    _rl->hardStop();
+    _rr->hardStop();
 }

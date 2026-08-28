@@ -1,246 +1,371 @@
 #include <Arduino.h>
 #include <esp_now.h>
 #include <WiFi.h>
-//#include "parameters.h"
-#include "MotorDriverCytronH_Bridge.h"
+
+#include "parameters.h"
+#include "motor_config.h"
+#include "Motor.h"
 #include "MecanumDrive.h"
-#include <ESP32Encoder.h>
-#include "EncoderReader.h"
 #include "messages.h"
-//#include "mac_addresses.h"
-#include "mac_addresses_private.h"
+#include "pad_input.h"
+#if __has_include("mac_addresses_private.h")
+  #include "mac_addresses_private.h"
+#else
+  #include "mac_addresses.h"
+#endif
 
+// The pad scales its gauges from MAX_RPM_TELEMETRY in messages.h. This guard
+// keeps that constant from drifting away from the platform's real MAX_RPM.
+static_assert(MAX_RPM_TELEMETRY == MAX_RPM * 10,
+              "MAX_RPM_TELEMETRY in messages.h does not match MAX_RPM!");
 
-// Data structure from the controller
-Message_from_Pad myData_from_Pad;
+// Most recent control frame from the pad
+static Msg_PadControl padCtrl;
 
-// Local control data (you can ignore these if you only use myData_from_Pad)
-typedef struct {
-  int x;
-  int y;
-  int yaw;
-} MovementData;
+// Most recent remote PID command
+static Msg_SetPID receivedPidCmd;
+static volatile bool pidCmdPending = false;
 
-int32_t totalMessages = 0;
+// Guards padCtrl and the link/telemetry counters
+static SemaphoreHandle_t movementMutex;
 
-// Global variable and mutex to protect data access
-volatile MovementData movementData;
-SemaphoreHandle_t movementMutex;
+// Guards the incoming PID settings
+static SemaphoreHandle_t pidMutex;
 
-// Motor initialization
-MotorDriverCytronH_Bridge rearRight(RR_PIN2, RR_PIN1, RR_CHANNEL2, RR_CHANNEL1);
-MotorDriverCytronH_Bridge frontRight(FR_PIN2, FR_PIN1, FR_CHANNEL2, FR_CHANNEL1);
-MotorDriverCytronH_Bridge frontLeft(FL_PIN1, FL_PIN2, FL_CHANNEL1, FL_CHANNEL2);
-MotorDriverCytronH_Bridge rearLeft(RL_PIN1, RL_PIN2, RL_CHANNEL1, RL_CHANNEL2);
+// ---- Failsafe: watching the link to the pad ----
+// Written in OnDataRecv (WiFi task, core 0), read in motorControlTask
+// (core 1). Both accesses happen under movementMutex.
+static volatile uint32_t lastPadMsgMs   = 0;      // millis() of the last pad frame
+static volatile bool     padEverSeen    = false;  // has any frame arrived at all
+static volatile bool     failsafeActive = false;  // observed by telemetry
 
-// Create MecanumDrive object
-MecanumDrive drive(&frontLeft, &frontRight, &rearLeft, &rearRight);
+// ---- Protocol state (see the header of messages.h) ----
+// padProtoOk is a LATCH: once a matching version has been seen it stays. A
+// single lost HELLO must not stop a moving platform — detecting silence is the
+// failsafe's job, and it measures the time since the last control frame.
+static volatile uint8_t  padProtoVersion = 0;
+static volatile bool     padProtoOk      = false;
+static volatile uint32_t protoErrorCount = 0;   // frames of unknown type/length
 
-// Encoder definitions
-ESP32Encoder frontLeftEncoder;
-ESP32Encoder frontRightEncoder;
-ESP32Encoder rearLeftEncoder;
-ESP32Encoder rearRightEncoder;
+// ---- Pad frame loss (gaps in the seq numbering) ----
+static volatile uint32_t padSeqLast   = 0;
+static volatile uint32_t padRecvCount = 0;
+static volatile uint32_t padMissCount = 0;
 
-// Pointer to EncoderReader object — will be created in setup()
-EncoderReader* encoderReader = nullptr;
+// Execution time of motorControlTask, in microseconds, reported in telemetry.
+static volatile float motorCtrlAvgTime = 0.0f;
 
-// Peer info
-esp_now_peer_info_t peerInfo;
-esp_now_peer_info_t peerInfoMonitor;
+// Motors
+static Motor frontLeftMotor(FL_CONFIG);
+static Motor frontRightMotor(FR_CONFIG);
+static Motor rearLeftMotor(RL_CONFIG);
+static Motor rearRightMotor(RR_CONFIG);
 
-// Task handles
-TaskHandle_t espNowTaskHandle;
-TaskHandle_t motorControlTaskHandle;
-TaskHandle_t encoderTaskHandle;
+// Mecanum mixer — turns a motion command into four wheel speeds
+static MecanumDrive drive(&frontLeftMotor, &frontRightMotor, &rearLeftMotor, &rearRightMotor);
 
-// ESP-NOW receive callback
-void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
-  // Protect access to myData_from_Pad
-  if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
-    if (len == sizeof(Message_from_Pad)) {
-      memcpy((void*)&myData_from_Pad, incomingData, sizeof(Message_from_Pad));
+// Handle of the telemetry task — woken by an incoming pad frame instead of
+// running on a timer of its own.
+static TaskHandle_t telemetryTaskHandle = nullptr;
+
+// ESP-NOW peer
+static esp_now_peer_info_t peerPad;
+
+// ESP-NOW receive callback.
+// The message type is taken from the FIRST BYTE; the length is checked before
+// memcpy as validation (see the header of messages.h). A frame of unknown type
+// or mismatched length is COUNTED AND REPORTED rather than dropped in silence —
+// previously "nothing arrived" and "something foreign arrived" looked alike.
+void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
+    static uint32_t padFrameCounter = 0;
+    if (len < 1) return;
+    const uint8_t type = incomingData[0];
+
+    switch (type) {
+    case MSG_PAD_CONTROL:
+        if (len != (int)sizeof(Msg_PadControl)) break;
+        if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
+            memcpy(&padCtrl, incomingData, sizeof(Msg_PadControl));
+            // Liveness mark for the link — the only place it is refreshed
+            lastPadMsgMs = millis();
+            padEverSeen  = true;
+            // A gap in the numbering means frames lost on the way. The first
+            // frame after startup only synchronises the counter. A pad restart
+            // rewinds seq, so the ">" guard keeps a negative loss out.
+            if (padRecvCount > 0 && padCtrl.seq > padSeqLast + 1) {
+                padMissCount += padCtrl.seq - padSeqLast - 1;
+            }
+            padSeqLast = padCtrl.seq;
+            padRecvCount++;
+            xSemaphoreGive(movementMutex);
+        }
+        // Telemetry is a REPLY, not an independent timer. It is not sent from
+        // here — one must not transmit from inside the ESP-NOW callback — we
+        // only wake the task that will do it in its own context.
+        if (++padFrameCounter % TELEMETRY_EVERY_N_PAD_FRAMES == 0 &&
+            telemetryTaskHandle != nullptr) {
+            xTaskNotifyGive(telemetryTaskHandle);
+        }
+        return;
+
+    case MSG_HELLO: {
+        if (len != (int)sizeof(Msg_Hello)) break;
+        Msg_Hello hello;
+        memcpy(&hello, incomingData, sizeof(hello));
+        if (hello.role != ROLE_PAD) break;
+        padProtoVersion = hello.protoVersion;
+        if (hello.protoVersion == PROTO_VERSION) padProtoOk = true;
+        return;
     }
-    xSemaphoreGive(movementMutex);
-  }
+
+    case MSG_SET_PID:
+        if (len != (int)sizeof(Msg_SetPID)) break;
+        if (xSemaphoreTake(pidMutex, portMAX_DELAY) == pdTRUE) {
+            memcpy(&receivedPidCmd, incomingData, sizeof(Msg_SetPID));
+            pidCmdPending = true;
+            xSemaphoreGive(pidMutex);
+        }
+        return;
+
+    default:
+        break;
+    }
+
+    // Anything we cannot interpret.
+    protoErrorCount++;
 }
 
-// TASK 1: Sending data via ESP-NOW (empty loop here)
-void espNowTask(void *parameter) {
-  while (1) {
-    // Local debug data structure for the mecanum platform to improve performance
-    Message_from_Platform_Mecanum debugMsg;
-    // Protect data access with mutex
-    if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
-      debugMsg.timestamp = millis();
-      debugMsg.totalMessages = totalMessages;
-      debugMsg.frontLeftSpeedRPM = drive.readRPMs().frontLeft;
-      debugMsg.frontRightSpeedRPM = drive.readRPMs().frontRight;
-      debugMsg.rearLeftSpeedRPM = drive.readRPMs().rearLeft;
-      debugMsg.rearRightSpeedRPM = drive.readRPMs().rearRight;
-      debugMsg.frontLeftEncoder = frontLeftEncoder.getCount();
-      debugMsg.frontRightEncoder = frontRightEncoder.getCount();
-      debugMsg.rearLeftEncoder = rearLeftEncoder.getCount();
-      debugMsg.rearRightEncoder = rearRightEncoder.getCount();
-      // Not yet implemented
-      debugMsg.pitch = 0;       
-      debugMsg.roll = 0;
-      debugMsg.yaw = 0;
-      debugMsg.batteryVoltage = 0;
-      xSemaphoreGive(movementMutex);
-    }
-    // Send packet to MonitorDebug (address macMonitorDebug)
-    esp_err_t result = esp_now_send(macMonitorDebug, (uint8_t *)&debugMsg, sizeof(Message_from_Platform_Mecanum));
-    if (result == ESP_OK) {
-      //Serial.println("Sent data to monitor");
-      totalMessages++;
-    }
-    else {
-      //Serial.println("Error sending data to monitor");
-    }
+// Announcing the protocol version. Repeated rather than agreed once at
+// startup: ESP-NOW has no notion of a session, so the pad may disappear and
+// come back after a reset at any moment, and then has to learn everything
+// again from scratch.
+void helloTask(void* parameter) {
+    for (;;) {
+        Msg_Hello hello = {};
+        hello.msgType      = MSG_HELLO;
+        hello.protoVersion = PROTO_VERSION;
+        hello.role         = ROLE_PLATFORM;
+        hello.fwBuildId    = FW_BUILD_ID;
+        hello.uptimeMs     = millis();
+        esp_now_send(macPadXiao, reinterpret_cast<const uint8_t*>(&hello), sizeof(hello));
 
-    vTaskDelay(50 / portTICK_PERIOD_MS);
-  }
+        // Often while the pad has not been seen. Rarely afterwards: version
+        // agreement does not change during operation, so there is no reason to
+        // occupy the air with it.
+        vTaskDelay(pdMS_TO_TICKS(padProtoOk ? HELLO_INTERVAL_IDLE_MS
+                                            : HELLO_INTERVAL_SEARCH_MS));
+    }
 }
 
-// TASK 2: Motor control – fetch controller data protected by mutex
-void motorControlTask(void *parameter) {
-  int x, y, yaw;
-  while (1) {
-    // Protect read of myData_from_Pad
-    if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
-      x = myData_from_Pad.L_Joystick_x_message;
-      y = myData_from_Pad.L_Joystick_y_message;
-      yaw = myData_from_Pad.R_Joystick_x_message;
-      xSemaphoreGive(movementMutex);
-    }
-    // Call control method, e.g., moveRPM()
-    drive.moveRPM(x, y, yaw);
+// Motor control task — the PID loop, at a fixed period.
+void motorControlTask(void* parameter) {
+    int16_t x = 0, y = 0, yaw = 0;
+    bool linkAlive = false;
+    bool failsafeEngaged = false;  // latch: braking is commanded once per episode
 
-    vTaskDelay(20 / portTICK_PERIOD_MS);
-  }
+    // vTaskDelayUntil, NOT vTaskDelay — see the comment at the end of the loop.
+    TickType_t lastWake = xTaskGetTickCount();
+
+    for (;;) {
+        uint64_t start = esp_timer_get_time();
+
+        // Read the pad data and judge whether the link is alive
+        if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
+            x   = padCtrl.axisLX;
+            y   = padCtrl.axisLY;
+            yaw = padCtrl.axisRX;
+            // Unsigned subtraction survives the millis() rollover.
+            // padProtoOk in this condition means: WE DO NOT DRIVE until we know
+            // the pad speaks the same protocol version. Driving on data read
+            // through someone else's struct layout would be worse than
+            // standing still.
+            linkAlive = padEverSeen && padProtoOk &&
+                        (millis() - lastPadMsgMs) < PAD_LINK_TIMEOUT_MS;
+            xSemaphoreGive(movementMutex);
+        }
+
+        if (linkAlive) {
+            if (failsafeEngaged) {
+                failsafeEngaged = false;
+                failsafeActive  = false;
+                Serial.println("Link to the pad restored");
+            }
+            // Mecanum kinematics — stick units converted to RPM first.
+            // Rotation is computed last, because it depends on travel speed.
+            const float vxRpm = padAxisToRPM(x);
+            const float vyRpm = padAxisToRPM(y);
+            drive.drive(vxRpm, vyRpm, padAxisToOmega(yaw, vxRpm, vyRpm));
+        } else if (!failsafeEngaged) {
+            // Cut the drive exactly once, then STOP calling drive(), because
+            // setTargetRPM() would clear the HardStopped state and resume
+            // driving on stale joystick data.
+            //
+            // Braking is by coasting. That was justified by gearbox friction
+            // stopping the platform on its own — an assumption that turned out
+            // to hold only in part, since the 120:1 gearbox is back-drivable.
+            // Not verified on a slope; see "Known gaps" in CLAUDE.md.
+            failsafeEngaged = true;
+            failsafeActive  = true;
+            drive.hardStop();
+            if (!padProtoOk) {
+                Serial.printf("Pad speaks protocol v%u, we speak v%u - refusing to drive\n",
+                              (unsigned)padProtoVersion, (unsigned)PROTO_VERSION);
+            } else {
+                Serial.println("Link to the pad lost - drive cut");
+            }
+        }
+
+        // The PID step runs ALWAYS, failsafe included: it sustains the cutoff
+        // and keeps the measured speed fresh for telemetry.
+        drive.update();
+
+        // Exponential moving average, not a mean since boot: a mean since boot
+        // stops reacting after a minute and quietly becomes a constant, which
+        // is worse than no number at all.
+        const uint64_t duration = esp_timer_get_time() - start;
+        motorCtrlAvgTime += ((float)duration - motorCtrlAvgTime) / 64.0f;
+
+        // The period MUST be constant, hence vTaskDelayUntil rather than
+        // vTaskDelay. vTaskDelay measures the pause FROM THE END OF THE WORK,
+        // so the period was the requested 20 ms plus the execution time —
+        // 21 ms in practice. The controller was therefore given a different dt
+        // from the one the gains assume, and the measured RPM landed on a
+        // quantisation grid offset from the correct one (which is where the
+        // "always a 9" at the end of the pad's RPM readout came from).
+        vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(INTERVAL_MOTOR_CONTROL));
+    }
 }
 
-// TASK 3: Debug – read and display data (protected by mutex)
-void encoderTask(void *parameter) {
-  while (1) {
-    // Protect shared data access – e.g., myData_from_Pad or encoder data
-    if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
-      // Get RPMs from encoders
-      float rpmFL, rpmFR, rpmRL, rpmRR;
-      encoderReader->getRPMs(rpmFL, rpmFR, rpmRL, rpmRR);
-      // Get raw encoder counts
-      EncoderData dataEncoder = encoderReader->readEncoders();
-      // Get target RPM data from MecanumDrive
-      RPMData dataRPM = drive.readRPMs();
-      xSemaphoreGive(movementMutex);
-      
-      // Clear screen and display results in table format:
-      Serial.write("\033[2J"); // Clear screen
-      Serial.write("\033[H");  // Move cursor to top-left
+// Telemetry task — gathers the drive state and sends it over ESP-NOW.
+// Woken by an incoming pad frame; the timeout is only a safety net.
+void telemetryTask(void* parameter) {
+    Motor* wheels[4] = { &frontLeftMotor, &frontRightMotor,
+                         &rearLeftMotor,  &rearRightMotor };
+    const bool wheelInverted[4] = { FL_CONFIG.invertDirection, FR_CONFIG.invertDirection,
+                                    RL_CONFIG.invertDirection, RR_CONFIG.invertDirection };
+    uint32_t telemetrySeq = 0;
 
-      // Print headers
-      Serial.println("---------------------------------------------------------");
-      Serial.println("       ENCODER COUNTS             RPM");
-      Serial.println("---------------------------------------------------------");
+    for (;;) {
+        Msg_Telemetry msg = {};          // reserved fields stay zero
+        msg.msgType = MSG_TELEMETRY;
 
-      // Print encoder counts
-      Serial.print("FL: ");
-      Serial.print(dataEncoder.frontLeft);
-      Serial.print("\t FR: ");
-      Serial.print(dataEncoder.frontRight);
-      Serial.print("\t RL: ");
-      Serial.print(dataEncoder.rearLeft);
-      Serial.print("\t RR: ");
-      Serial.println(dataEncoder.rearRight);
+        if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
+            msg.timestamp = millis();
+            msg.seq       = ++telemetrySeq;
 
-      // Print target RPM values
-      Serial.println("---------------------------------------------------------");
-      Serial.println("       TARGET RPM");
-      Serial.println("---------------------------------------------------------");
-      Serial.print("FL: ");
-      Serial.print(dataRPM.frontLeft);    
-      Serial.print("\t FR: ");
-      Serial.print(dataRPM.frontRight);
-      Serial.print("\t RL: ");
-      Serial.print(dataRPM.rearLeft);
-      Serial.print("\t RR: ");
-      Serial.println(dataRPM.rearRight);
+            // Axis echo — we send back what we actually read out of the frame,
+            // not what it turned into after conversion to RPM.
+            msg.echoAxisLX = padCtrl.axisLX;
+            msg.echoAxisLY = padCtrl.axisLY;
+            msg.echoAxisRX = padCtrl.axisRX;
+            msg.echoAxisRY = padCtrl.axisRY;
+            msg.echoSeq    = padCtrl.seq;
 
-      // Print actual RPM from encoders
-      Serial.print("FL: ");
-      Serial.print(rpmFL, 1);
-      Serial.print("\t FR: ");
-      Serial.print(rpmFR, 1);
-      Serial.print("\t RL: ");
-      Serial.print(rpmRL, 1);
-      Serial.print("\t RR: ");
-      Serial.println(rpmRR, 1);
+            // Undo invertDirection: what goes on air is the ROBOT convention,
+            // i.e. positive = forward for every wheel. That lets the pad invert
+            // the mecanum mixing without knowing anything about our wiring.
+            for (int i = 0; i < 4; i++) {
+                const float sign = wheelInverted[i] ? -1.0f : 1.0f;
+                msg.targetRPM[i]   = (int16_t)lroundf(sign * wheels[i]->getTargetRPM()  * 10.0f);
+                msg.measuredRPM[i] = (int16_t)lroundf(sign * wheels[i]->getCurrentRPM() * 10.0f);
+                msg.pwm[i]         = (int16_t)wheels[i]->getControlOutput();
+            }
+
+            if (failsafeActive)      msg.flags |= TFLAG_FAILSAFE;
+            if (protoErrorCount > 0) msg.flags |= TFLAG_PROTO_ERROR;
+
+            // Pad frame loss is counted over the window BETWEEN telemetry
+            // frames, not since boot — otherwise, after an hour of driving, a
+            // single lost frame would dissolve into the average and the
+            // indicator would stop saying anything.
+            uint32_t total = padRecvCount + padMissCount;
+            msg.padLossPermille = (total > 0)
+                ? (uint8_t)((padMissCount * 1000u) / total > 255u ? 255u
+                                                                  : (padMissCount * 1000u) / total)
+                : 0;
+            padRecvCount = 0;
+            padMissCount = 0;
+
+            msg.motorCtrlTimeUs = (uint16_t)constrain((long)motorCtrlAvgTime, 0L, 65535L);
+
+            xSemaphoreGive(movementMutex);
+        }
+
+        // Telemetry goes to the pad — it took over the monitor's role.
+        esp_now_send(macPadXiao, reinterpret_cast<const uint8_t*>(&msg), sizeof(msg));
+
+        // Wait for the next pad frame. The timeout is a safety net: when the
+        // pad goes quiet, telemetry slows down but does not die.
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(TELEMETRY_IDLE_MS));
     }
-    vTaskDelay(100 / portTICK_PERIOD_MS);
-  }
+}
+
+// Applies PID settings received remotely (MSG_SET_PID). The sender will be
+// the pad.
+void pidCommandTask(void* parameter) {
+    Motor* wheels[4] = { &frontLeftMotor, &frontRightMotor,
+                         &rearLeftMotor,  &rearRightMotor };
+
+    for (;;) {
+        if (xSemaphoreTake(pidMutex, portMAX_DELAY) == pdTRUE) {
+            if (pidCmdPending) {
+                pidCmdPending = false;   // one command = one application
+                for (int i = 0; i < 4; i++) {
+                    if (receivedPidCmd.motorIndex == 0xFF ||
+                        receivedPidCmd.motorIndex == (uint8_t)i) {
+                        wheels[i]->setPID(receivedPidCmd.Kp,
+                                          receivedPidCmd.Ki,
+                                          receivedPidCmd.Kd);
+                    }
+                }
+                Serial.printf("PID: wheel %u  Kp=%.3f Ki=%.3f Kd=%.3f\n",
+                              (unsigned)receivedPidCmd.motorIndex,
+                              receivedPidCmd.Kp, receivedPidCmd.Ki, receivedPidCmd.Kd);
+            }
+            xSemaphoreGive(pidMutex);
+        }
+        vTaskDelay(pdMS_TO_TICKS(300));
+    }
 }
 
 void setup() {
-  Serial.begin(115200);
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
+    Serial.begin(115200);
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect();
 
-  if (esp_now_init() != ESP_OK) {
-    Serial.println("Error initializing ESP-NOW");
-    return;
-  }
-  esp_now_register_recv_cb(OnDataRecv);
+    // The mutexes MUST exist before the ESP-NOW callback is registered: the
+    // WiFi task (core 0) can call OnDataRecv the instant it is registered,
+    // while setup() is still running on core 1.
+    movementMutex = xSemaphoreCreateMutex();
+    pidMutex      = xSemaphoreCreateMutex();
+    if (!movementMutex || !pidMutex) {
+        Serial.println("Failed to create a mutex");
+        while (1) vTaskDelay(100);
+    }
 
-  memcpy(peerInfo.peer_addr, macPadXiao, 6);
-  peerInfo.channel = 0;
-  peerInfo.encrypt = false;
-  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-    Serial.println("Failed to add peer");
-    return;
-  }
+    if (esp_now_init() != ESP_OK) {
+        Serial.println("ESP-NOW init failed");
+        return;
+    }
+    esp_now_register_recv_cb(OnDataRecv);
 
-  // Add Monitor Debug peer
-  memcpy(peerInfoMonitor.peer_addr, macMonitorDebug, 6);
-  peerInfoMonitor.channel = 0;
-  peerInfoMonitor.encrypt = false;
-  if (esp_now_add_peer(&peerInfoMonitor) != ESP_OK) {
-    Serial.println("Failed to add Monitor Debug peer");
-    return;
-  }
+    // The pad is the only peer.
+    memcpy(peerPad.peer_addr, macPadXiao, 6);
+    peerPad.channel = ESP_CHANNEL;
+    peerPad.encrypt = false;
+    esp_now_add_peer(&peerPad);
 
-  // Create mutex
-  movementMutex = xSemaphoreCreateMutex();
-  if (movementMutex == NULL) {
-    Serial.println("❌ Error creating mutex!");
-    while (1) delay(100);
-  }
+    // FreeRTOS tasks. Motor control, telemetry and PID commands are pinned to
+    // core 1; HELLO sits on core 0 alongside the WiFi stack it feeds.
+    xTaskCreatePinnedToCore(motorControlTask, "MotorCtrlTask", 4096, nullptr, 1, nullptr, 1);
+    xTaskCreatePinnedToCore(telemetryTask,    "TelemetryTask", 4096, nullptr, 1,
+                            &telemetryTaskHandle, 1);
+    xTaskCreatePinnedToCore(pidCommandTask,   "PidCommand",    2048, nullptr, 1, nullptr, 1);
+    xTaskCreatePinnedToCore(helloTask,        "HelloTask",     2048, nullptr, 1, nullptr, 0);
 
-  // Initialize encoders
-  frontLeftEncoder.attachSingleEdge(FL_ENCODER_A, FL_ENCODER_B);
-  frontRightEncoder.attachSingleEdge(FR_ENCODER_A, FR_ENCODER_B);
-  rearLeftEncoder.attachSingleEdge(RL_ENCODER_A, RL_ENCODER_B);
-  rearRightEncoder.attachSingleEdge(RR_ENCODER_A, RR_ENCODER_B);
-  
-  frontLeftEncoder.clearCount();
-  frontRightEncoder.clearCount();
-  rearLeftEncoder.clearCount();
-  rearRightEncoder.clearCount();
-
-  // Create EncoderReader object with resolution from parameters.h
-  encoderReader = new EncoderReader(&frontLeftEncoder, &frontRightEncoder, &rearLeftEncoder, &rearRightEncoder, ENCODER_RESOLUTION);
-  encoderReader->begin();
-  
-  Serial.println("✅ Encoder initialization complete");
-
-  // Create FreeRTOS tasks
-  xTaskCreatePinnedToCore(espNowTask, "ESPNowTask", 2048, NULL, 1, &espNowTaskHandle, 0);
-  xTaskCreatePinnedToCore(motorControlTask, "MotorControlTask", 2048, NULL, 1, &motorControlTaskHandle, 1);
-  xTaskCreatePinnedToCore(encoderTask, "EncoderTask", 2048, NULL, 1, &encoderTaskHandle, 1);
-
-  Serial.println("✅ System ready!");
+    Serial.println("System ready");
 }
 
 void loop() {
-  // Empty – running under FreeRTOS
+    // Everything runs in the FreeRTOS tasks.
 }
