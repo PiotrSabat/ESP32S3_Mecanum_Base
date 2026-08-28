@@ -1,6 +1,6 @@
-// Symulator failsafe: uruchamia PRAWDZIWY Motor.cpp z projektu na hoście,
-// z podstawionym zegarem i enkoderem. Sprawdza zachowanie rampy hamowania
-// oraz logikę bramkowania z motorControlTask.
+// Failsafe simulator: runs the project's REAL Motor.cpp on the host, with a
+// substituted clock and encoder. Checks the braking ramp and the gating logic
+// taken from motorControlTask.
 #include <cstdio>
 #include <cmath>
 #include "Motor.h"
@@ -9,9 +9,11 @@ uint32_t g_fakeMillis = 0;
 int      g_pwm[16]    = {0};
 int64_t  g_encoderCount = 0;
 
-// PAD_LINK_TIMEOUT_MS, FAILSAFE_STOP_DURATION_MS i INTERVAL_MOTOR_CONTROL
-// pochodzą z prawdziwego parameters.h projektu (wciąganego przez Motor.h),
-// więc test sprawdza wartości faktycznie wgrywane na sprzęt.
+// PAD_LINK_TIMEOUT_MS and INTERVAL_MOTOR_CONTROL come from the project's real
+// parameters.h (pulled in via Motor.h), so this test exercises the values that
+// actually get flashed. The PID gains below are deliberately NOT the flashed
+// ones: the plant model here is a crude "PWM maps straight to RPM" and the real
+// gains would ring against it. This test is about the stop logic, not tuning.
 
 static const MotorConfig TEST_CFG = {
     .pwmPin1 = 9, .pwmPin2 = 10, .pwmChannel1 = 0, .pwmChannel2 = 1,
@@ -29,11 +31,11 @@ static void check(bool cond, const char* what) {
     if (!cond) failures++;
 }
 
-// Prosty model silnika: obroty nadążają za wypełnieniem PWM.
-// 511 jednostek PWM ~ MAX_RPM. Nie musi być wierny — chodzi o to,
-// by enkoder w ogóle reagował i pętla PID nie liczyła w próżni.
+// Crude motor model: RPM follows the PWM duty cycle. 511 PWM units ~ MAX_RPM.
+// It does not need to be faithful — it only has to make the encoder respond so
+// the PID loop is not computing in a vacuum.
 static void advance(Motor& m, uint32_t ms) {
-    int pwm = g_pwm[0] - g_pwm[1];             // znak = kierunek
+    int pwm = g_pwm[0] - g_pwm[1];             // sign = direction
     float rpm = (pwm / 511.0f) * (float)MAX_RPM;
     float revs = rpm * (ms / 60000.0f);
     g_encoderCount += (int64_t)llround(revs * (double)DEFAULT_GEAR_RATIO);
@@ -44,19 +46,19 @@ static void advance(Motor& m, uint32_t ms) {
 int main() {
     Motor m(TEST_CFG);
 
-    printf("\n=== 1. Jazda normalna: silnik rozpedza sie do zadanych 50 RPM ===\n");
-    for (int i = 0; i < 100; i++) {                 // 2 s rozpedzania
+    printf("\n=== 1. Normal driving: motor spins up to the commanded 50 RPM ===\n");
+    for (int i = 0; i < 100; i++) {                 // 2 s of spinning up
         m.setTargetRPM(50.0f);
         advance(m, INTERVAL_MOTOR_CONTROL);
     }
     printf("  target=%.1f  current=%.1f  pwm=%d\n",
            m.getTargetRPM(), m.getCurrentRPM(), m.getControlOutput());
-    check(m.getTargetRPM() == 50.0f, "targetRPM trzyma zadana wartosc");
-    check(m.getCurrentRPM() > 25.0f,  "silnik faktycznie sie kreci");
+    check(m.getTargetRPM() == 50.0f, "targetRPM holds the commanded value");
+    check(m.getCurrentRPM() > 25.0f,  "the motor is actually turning");
 
-    printf("\n=== 2. Utrata lacznosci: hardStop(), drive() juz NIE wolane ===\n");
+    printf("\n=== 2. Link lost: hardStop(), drive() no longer called ===\n");
     m.hardStop();
-    check(m.getTargetRPM() == 0.0f, "hardStop natychmiast zeruje zadana predkosc");
+    check(m.getTargetRPM() == 0.0f, "hardStop zeroes the commanded speed immediately");
 
     bool pwmZawszeZero = true;
     for (int i = 0; i < 13; i++) {
@@ -66,72 +68,72 @@ int main() {
                (i + 1) * INTERVAL_MOTOR_CONTROL, m.getTargetRPM(),
                m.getCurrentRPM(), m.getControlOutput());
     }
-    check(pwmZawszeZero, "PWM pozostaje zerowy - naped odciety, zero pradu");
+    check(pwmZawszeZero, "PWM stays at zero - drive cut, no current");
     check(fabs(m.getCurrentRPM()) < 5.0f,
-          "zmierzona predkosc odswiezana mimo stopu (telemetria mowi prawde)");
+          "measured speed still refreshed while stopped (telemetry tells the truth)");
 
-    printf("\n=== 3. Cisza trwa: bez drive() robot ma stac ===\n");
+    printf("\n=== 3. Silence continues: without drive() the robot must stay put ===\n");
     for (int i = 0; i < 50; i++) advance(m, INTERVAL_MOTOR_CONTROL);  // 1 s
     printf("  target=%.1f  current=%.1f  pwm=%d\n",
            m.getTargetRPM(), m.getCurrentRPM(), m.getControlOutput());
-    check(m.getTargetRPM() == 0.0f, "target pozostaje 0 mimo uplywu czasu");
-    check(fabs(m.getCurrentRPM()) < 5.0f, "robot faktycznie stoi");
+    check(m.getTargetRPM() == 0.0f, "target stays 0 as time passes");
+    check(fabs(m.getCurrentRPM()) < 5.0f, "the robot is genuinely stopped");
 
-    printf("\n=== 4. Powrot lacznosci: drive() znow wolane ===\n");
+    printf("\n=== 4. Link restored: drive() called again ===\n");
     for (int i = 0; i < 50; i++) {
         m.setTargetRPM(50.0f);
         advance(m, INTERVAL_MOTOR_CONTROL);
     }
     printf("  target=%.1f  current=%.1f\n", m.getTargetRPM(), m.getCurrentRPM());
-    check(m.getTargetRPM() == 50.0f, "sterowanie wraca po odzyskaniu lacznosci");
-    check(m.getCurrentRPM() > 25.0f,  "silnik znow sie kreci");
+    check(m.getTargetRPM() == 50.0f, "control resumes once the link is back");
+    check(m.getCurrentRPM() > 25.0f,  "the motor is turning again");
 
-    printf("\n=== 5. Przypadek brzegowy: lacznosc wraca W TRAKCIE rampy ===\n");
+    printf("\n=== 5. Edge case: the link returns MID-RAMP ===\n");
     m.setTargetRPM(50.0f);
     advance(m, INTERVAL_MOTOR_CONTROL);
     m.softStop(250);
-    advance(m, 60);                                  // 60 ms rampy
+    advance(m, 60);                                  // 60 ms into the ramp
     float midRamp = m.getTargetRPM();
-    m.setTargetRPM(50.0f);                          // niby-powrot lacznosci
+    m.setTargetRPM(50.0f);                          // pretend the link came back
     advance(m, INTERVAL_MOTOR_CONTROL);
     float afterCmd = m.getTargetRPM();
-    printf("  target w trakcie rampy=%.1f, po probie sterowania=%.1f\n",
+    printf("  target mid-ramp=%.1f, after a control attempt=%.1f\n",
            midRamp, afterCmd);
     check(afterCmd < 100.0f,
-          "komenda w trakcie rampy jest ignorowana (rampa ma pierwszenstwo)");
+          "a command mid-ramp is ignored (the ramp takes precedence)");
 
     int steps = 0;
     while (m.getTargetRPM() != 0.0f && steps < 50) { advance(m, INTERVAL_MOTOR_CONTROL); steps++; }
     m.setTargetRPM(50.0f);
     advance(m, INTERVAL_MOTOR_CONTROL);
-    printf("  rampa zakonczona po %d ms, target po komendzie=%.1f\n",
+    printf("  ramp finished after %d ms, target after the command=%.1f\n",
            steps * INTERVAL_MOTOR_CONTROL, m.getTargetRPM());
-    check(m.getTargetRPM() == 50.0f, "po zakonczeniu rampy sterowanie wraca");
-    check(steps * INTERVAL_MOTOR_CONTROL <= 300, "opoznienie powrotu ograniczone (<= 300 ms)");
+    check(m.getTargetRPM() == 50.0f, "control returns once the ramp finishes");
+    check(steps * INTERVAL_MOTOR_CONTROL <= 300, "the return delay is bounded (<= 300 ms)");
 
-    printf("\n=== 6. Przepelnienie millis() po ~49.7 dnia ===\n");
-    g_fakeMillis = 0xFFFFFF00;                       // tuz przed przewinieciem
+    printf("\n=== 6. millis() rollover after ~49.7 days ===\n");
+    g_fakeMillis = 0xFFFFFF00;                       // just before the wrap
     uint32_t lastMsg = g_fakeMillis;
-    g_fakeMillis += 500;                             // zegar sie przewija
+    g_fakeMillis += 500;                             // the clock wraps
     bool aliveAfterWrap = (g_fakeMillis - lastMsg) < PAD_LINK_TIMEOUT_MS;
-    printf("  lastMsg=%u  teraz=%u  roznica=%u\n",
+    printf("  lastMsg=%u  now=%u  difference=%u\n",
            lastMsg, g_fakeMillis, g_fakeMillis - lastMsg);
-    check(!aliveAfterWrap, "po przewinieciu zegara cisza 500 ms wciaz wykryta");
+    check(!aliveAfterWrap, "500 ms of silence is still detected across the rollover");
 
-    printf("\n=== 7. Czy zatrzask jest KONIECZNY? softStop() wolany co 20 ms ===\n");
+    printf("\n=== 7. Is the latch NECESSARY? softStop() called every 20 ms ===\n");
     for (int i = 0; i < 60; i++) { m.setTargetRPM(50.0f); advance(m, INTERVAL_MOTOR_CONTROL); }
     printf("  start: target=%.1f current=%.1f\n", m.getTargetRPM(), m.getCurrentRPM());
-    for (int i = 0; i < 40; i++) {                   // 800 ms ciszy
-        m.softStop(250);       // BEZ zatrzasku - za kazdym razem
+    for (int i = 0; i < 40; i++) {                   // 800 ms of silence
+        m.softStop(250);       // NO latch - called every iteration
         advance(m, INTERVAL_MOTOR_CONTROL);
         if (i % 5 == 0)
             printf("  t=+%3d ms  target=%6.1f  current=%6.1f\n",
                    (i + 1) * INTERVAL_MOTOR_CONTROL, m.getTargetRPM(), m.getCurrentRPM());
     }
-    printf("  koniec: target=%.1f current=%.1f\n", m.getTargetRPM(), m.getCurrentRPM());
+    printf("  end: target=%.1f current=%.1f\n", m.getTargetRPM(), m.getCurrentRPM());
     check(m.getTargetRPM() == 0.0f && fabs(m.getCurrentRPM()) < 5.0f,
-          "bez zatrzasku robot TEZ staje (wczesny return w softStop chroni rampe)");
+          "the robot stops without the latch too (softStop early return guards the ramp)");
 
-    printf("\n%s  (bledow: %d)\n", failures ? "!!! SA BLEDY" : "WSZYSTKO OK", failures);
+    printf("\n%s  (failures: %d)\n", failures ? "!!! FAILURES" : "ALL OK", failures);
     return failures ? 1 : 0;
 }

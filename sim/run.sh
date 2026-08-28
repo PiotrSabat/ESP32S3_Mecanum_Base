@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Buduje i uruchamia wszystkie symulatory na komputerze (nie na ESP32).
-# Użycie:  ./sim/run.sh          — wszystkie
-#          ./sim/run.sh failsafe — jeden wybrany
+# Builds and runs every simulator on the host machine (not on the ESP32).
+# Usage:  ./sim/run.sh          - all of them
+#         ./sim/run.sh failsafe - just one
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -9,18 +9,18 @@ SIM="$ROOT/sim"
 OUT="$SIM/build"
 mkdir -p "$OUT"
 
-# Motor.cpp jest potrzebny wszędzie; MecanumDrive.cpp tylko kinematyce,
-# ale dołączenie go zawsze niczego nie psuje.
+# Motor.cpp is needed everywhere; MecanumDrive.cpp only by the kinematics
+# test, but linking it in every time breaks nothing.
 SRC="$ROOT/src/Motor.cpp $ROOT/src/MecanumDrive.cpp"
 INC="-I$SIM/stubs -I$ROOT/src"
 
-TESTS=${1:-"failsafe kinematyka hamowanie trzymanie"}
+TESTS=${1:-"failsafe kinematics braking holding"}
 FAILED=0
 
 for t in $TESTS; do
     printf '\n=========== %s ===========\n' "$t"
     if ! g++ -std=c++17 -w $INC -o "$OUT/$t" "$SIM/$t.cpp" $SRC; then
-        echo "BLAD KOMPILACJI: $t"
+        echo "COMPILATION FAILED: $t"
         FAILED=1
         continue
     fi
@@ -29,8 +29,8 @@ done
 
 printf '\n'
 if [ "$FAILED" -eq 0 ]; then
-    echo "=== Wszystkie symulacje zakonczone bez bledow ==="
+    echo "=== All simulations finished without failures ==="
 else
-    echo "=== SA BLEDY - patrz wyzej ==="
+    echo "=== THERE ARE FAILURES - see above ==="
 fi
 exit $FAILED

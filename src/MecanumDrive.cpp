@@ -4,20 +4,25 @@ MecanumDrive::MecanumDrive(Motor* fl, Motor* fr, Motor* rl, Motor* rr)
     : _fl(fl), _fr(fr), _rl(rl), _rr(rr) {}
 
 void MecanumDrive::drive(float vx, float vy, float omega) {
-    // Kinematyka kół mecanum. vx, vy i omega są w RPM (przeliczone z drążka).
+    // Mecanum kinematics. NO TWO WHEELS MAY SHARE A PATTERN: if two rows of
+    // this mixing matrix become identical it loses rank and the robot becomes
+    // physically unable to drive sideways — it turns instead. That bug reached
+    // the repo once already (commit d64fbf7, fixed in 76f6cb2) and got through
+    // review because the commit message matched the diff exactly. Check these
+    // four lines against mecanum maths, not against what a change claims.
     float frontLeftRPM  = vy + vx + omega;
     float frontRightRPM = vy - vx - omega;
     float rearLeftRPM   = vy - vx + omega;
     float rearRightRPM  = vy + vx - omega;
 
-    // Normalizacja. Osie sumują się, więc przy jeździe po skosie z obrotem
-    // żądanie może sięgnąć trzykrotności MAX_RPM. Gdyby zostawić to bez zmian,
-    // koła nasycałyby się w RÓŻNYCH momentach i przestały zachowywać wzajemne
-    // proporcje — a to one decydują o kierunku jazdy, więc platforma jechałaby
-    // nie tam, gdzie wskazuje drążek.
+    // Normalisation. The axes add up, so a diagonal drive with rotation can
+    // demand three times MAX_RPM. Left alone, the wheels would saturate at
+    // DIFFERENT moments and stop holding their relative proportions — and it
+    // is those proportions that determine the direction of travel, so the
+    // platform would go somewhere other than where the stick points.
     //
-    // Dzielenie WSZYSTKICH czterech przez ten sam współczynnik ogranicza
-    // prędkość, ale zachowuje proporcje, czyli wierność kierunku.
+    // Dividing ALL FOUR by the same factor limits the speed but preserves the
+    // proportions, i.e. keeps the direction faithful.
     float maxMag = fmaxf(fmaxf(fabsf(frontLeftRPM), fabsf(frontRightRPM)),
                          fmaxf(fabsf(rearLeftRPM),  fabsf(rearRightRPM)));
     if (maxMag > (float)MAX_RPM) {
@@ -53,13 +58,4 @@ void MecanumDrive::hardStop() {
     _fr->hardStop();
     _rl->hardStop();
     _rr->hardStop();
-}
-
-RPMData MecanumDrive::readRPMs() const {
-    RPMData data;
-    data.frontLeft  = _fl->getCurrentRPM();
-    data.frontRight = _fr->getCurrentRPM();
-    data.rearLeft   = _rl->getCurrentRPM();
-    data.rearRight  = _rr->getCurrentRPM();
-    return data;
 }

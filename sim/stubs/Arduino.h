@@ -1,4 +1,4 @@
-// Minimalne zaślepki Arduino/ESP32, żeby uruchomić prawdziwy Motor.cpp na hoście.
+// Minimal Arduino/ESP32 stubs, enough to run the real Motor.cpp on the host.
 #pragma once
 #include <cstdint>
 #include <cstdio>
@@ -10,11 +10,11 @@ typedef uint32_t TickType_t;
 #define OUTPUT 1
 inline void pinMode(int, int) {}
 
-// Sterowany zegar — test decyduje, ile czasu upłynęło.
+// Driven clock - the test decides how much time has passed.
 extern uint32_t g_fakeMillis;
 inline uint32_t millis() { return g_fakeMillis; }
 
-// Ostatnio zapisane wypełnienie PWM na kanał.
+// Last PWM duty written, per channel.
 extern int g_pwm[16];
 inline void ledcSetup(int, int, int) {}
 inline void ledcAttachPin(int, int) {}

@@ -2,29 +2,29 @@
 #include <Arduino.h>
 #include "Motor.h"
 
-// UWAGA do nastaw PID: computePID() dostaje dt w MILISEKUNDACH, nie w sekundach.
-// Dlatego Kd = 100 obok Kp = 6 nie jest literówką — w konwencji sekundowej to
-// Kd = 0.1, a Ki = 0.06 to Ki = 60. Przed zmianą którejkolwiek wartości
-// przelicz: Ki_ms = Ki_s / 1000, Kd_ms = Kd_s * 1000.
+// PID GAIN UNITS: computePID() receives dt in MILLISECONDS, not seconds.
+// That is why Kd = 100 next to Kp = 6 is not a typo — in second-based units it
+// would read Kd = 0.1, and Ki = 0.06 would read Ki = 60. Before changing any
+// value, convert: Ki_ms = Ki_s / 1000, Kd_ms = Kd_s * 1000.
 //
-// Wzmocnienia zostały PODWOJONE 2026-08-28 razem z poprawką liczby zliczeń
-// enkodera. Zmierzona prędkość i zadana zmalały wtedy dwukrotnie, więc błąd
-// też — podwojenie wzmocnień sprawia, że wyjście regulatora pozostaje
-// identyczne. To nie jest strojenie, tylko zmiana jednostek.
+// The gains were DOUBLED on 2026-08-28 together with the encoder count fix.
+// Measured and commanded speed both halved at that point, so the error halved
+// too — doubling the gains keeps the controller output IDENTICAL. That was a
+// change of units, not a retune.
 
-// --- Definicje konfiguracji dla czterech silników ---
+// --- Configuration for the four motors ---
 static const MotorConfig FL_CONFIG = {
     // PWM
     .pwmPin1       = FL_PIN1,
     .pwmPin2       = FL_PIN2,
     .pwmChannel1   = FL_CHANNEL1,
     .pwmChannel2   = FL_CHANNEL2,
-    // Enkoder
+    // Encoder
     .encoderPinA   = FL_ENCODER_A,
     .encoderPinB   = FL_ENCODER_B,
-    // Kierunek obrotu silnika (true = odwrotny)
-    .invertDirection = false,         
-    // Przełożenie i PWM
+    // Wiring direction (true = this side is mounted mirrored)
+    .invertDirection = false,
+    // Gearing and PWM
     .gearRatio     = DEFAULT_GEAR_RATIO,
     .pwmResolution = DEFAULT_PWM_RESOLUTION,
     .pwmFrequency  = DEFAULT_PWM_FREQUENCY,
@@ -46,8 +46,8 @@ static const MotorConfig FR_CONFIG = {
     .pwmChannel2   = FR_CHANNEL2,
     .encoderPinA   = FR_ENCODER_A,
     .encoderPinB   = FR_ENCODER_B,
-    // Kierunek obrotu silnika (true = odwrotny)
-    .invertDirection = true,         
+    // Wiring direction (true = this side is mounted mirrored)
+    .invertDirection = true,
     .gearRatio     = DEFAULT_GEAR_RATIO,
     .pwmResolution = DEFAULT_PWM_RESOLUTION,
     .pwmFrequency  = DEFAULT_PWM_FREQUENCY,
@@ -68,8 +68,8 @@ static const MotorConfig RL_CONFIG = {
     .pwmChannel2   = RL_CHANNEL2,
     .encoderPinA   = RL_ENCODER_A,
     .encoderPinB   = RL_ENCODER_B,
-    // Kierunek obrotu silnika (true = odwrotny)
-    .invertDirection = false,         
+    // Wiring direction (true = this side is mounted mirrored)
+    .invertDirection = false,
     .gearRatio     = DEFAULT_GEAR_RATIO,
     .pwmResolution = DEFAULT_PWM_RESOLUTION,
     .pwmFrequency  = DEFAULT_PWM_FREQUENCY,
@@ -90,8 +90,8 @@ static const MotorConfig RR_CONFIG = {
     .pwmChannel2   = RR_CHANNEL2,
     .encoderPinA   = RR_ENCODER_A,
     .encoderPinB   = RR_ENCODER_B,
-    // Kierunek obrotu silnika (true = odwrotny)
-    .invertDirection = true,         
+    // Wiring direction (true = this side is mounted mirrored)
+    .invertDirection = true,
     .gearRatio     = DEFAULT_GEAR_RATIO,
     .pwmResolution = DEFAULT_PWM_RESOLUTION,
     .pwmFrequency  = DEFAULT_PWM_FREQUENCY,

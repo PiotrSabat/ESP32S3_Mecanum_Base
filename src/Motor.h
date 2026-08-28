@@ -5,191 +5,134 @@
 #include "parameters.h"
 
 /**
- * Struktura konfiguracji silnika.
- * Wszystkie parametry (piny, przełożenie, PWM, PID) definiuje się np. w motor_config.h lub parameters.h
+ * Per-motor configuration: pins, gearing, PWM and PID.
+ * Instances live in motor_config.h, built from the constants in parameters.h.
  */
 struct MotorConfig {
-    int   pwmPin1;        ///< Pin PWM dla kierunku/prędkości (kanał 1)
-    int   pwmPin2;        ///< Pin PWM dla kierunku/prędkości (kanał 2)
-    int   pwmChannel1;    ///< Kanał LEDC dla pwmPin1
-    int   pwmChannel2;    ///< Kanał LEDC dla pwmPin2
-    int   encoderPinA;    ///< Pin A enkodera
-    int   encoderPinB;    ///< Pin B enkodera
-    bool invertDirection;         ///< Kierunek obrotu silnika (true = odwrotny)
-    float gearRatio;      ///< Przełożenie przekładni
-    int   pwmResolution;  ///< Rozdzielczość PWM (liczba bitów)
-    int   pwmFrequency;   ///< Częstotliwość PWM (Hz)
-    float Kp;             ///< Wzmocnienie proporcjonalne PID
-    float Ki;             ///< Wzmocnienie całkujące PID
-    float Kd;             ///< Wzmocnienie różniczkujące PID
-    float outputMin;      ///< Minimalne wyjście regulatora (np. -maxPWM)
-    float outputMax;      ///< Maksymalne wyjście regulatora (np. maxPWM)
-    // --- Parametry bezpieczeństwa ---
-    uint32_t softStopDurationMs;  ///< Czas trwania soft stopu (ms)
-    uint32_t hardStopDurationMs;  ///< Czas trwania hard stopu (ms)
-    
+    int   pwmPin1;          ///< PWM pin, channel 1 (one direction)
+    int   pwmPin2;          ///< PWM pin, channel 2 (the other direction)
+    int   pwmChannel1;      ///< LEDC channel for pwmPin1
+    int   pwmChannel2;      ///< LEDC channel for pwmPin2
+    int   encoderPinA;      ///< Encoder channel A
+    int   encoderPinB;      ///< Encoder channel B
+    bool  invertDirection;  ///< true = this motor is wired the other way round
+    float gearRatio;        ///< Encoder COUNTS per wheel revolution (not pulses)
+    int   pwmResolution;    ///< PWM resolution in bits
+    int   pwmFrequency;     ///< PWM frequency in Hz
+    float Kp;               ///< Proportional gain (note: dt is in MILLISECONDS)
+    float Ki;               ///< Integral gain
+    float Kd;               ///< Derivative gain
+    float outputMin;        ///< Lower controller output bound (e.g. -maxPWM)
+    float outputMax;        ///< Upper controller output bound (e.g. +maxPWM)
+    // --- Safety ---
+    uint32_t softStopDurationMs;  ///< Default soft-stop ramp length (ms)
+    uint32_t hardStopDurationMs;  ///< Default hard-stop duration (ms)
 };
 
 /**
- * Klasa sterująca pojedyńczym silnikiem DC z enkoderem i regulatorem PID.
- *
- * Użycie:
- * 1. W parameters.h lub motor_config.h zdefiniuj zmienne MotorConfig,
- *    np.:
- *      extern const MotorConfig FL_CONFIG;
- * 2. W main.cpp utwórz obiekt:
- *      Motor motorFL(FL_CONFIG);
- * 3. W setup(): nic więcej — konstruktor automatycznie skonfiguruje pini,
- *    PWM i enkoder.
- * 4. W loop(): regularnie wywołuj:
- *      motorFL.setTargetRPM(desiredRPM);
- *      motorFL.update();           // co INTERVAL_MOTOR_CONTROL ms
- *      float rpm = motorFL.getCurrentRPM();
- */
-
-
-/**
- * Stany pracy silnika — przydatne do obsługi zatrzymań awaryjnych.
+ * Operating state of a motor — used by the emergency stop paths.
  */
 enum class MotorState {
-    Active,         ///< Normalna praca
-    SoftStopping,   ///< Trwa łagodne zatrzymanie (softStop)
-    HardStopped     ///< Zatrzymany natychmiastowo (hardStop)
+    Active,         ///< Normal operation
+    SoftStopping,   ///< Soft stop ramp in progress
+    HardStopped     ///< Drive cut immediately
 };
 
-
+/**
+ * One DC motor with an encoder and a PID speed controller.
+ *
+ * Usage:
+ *   1. Define a MotorConfig (see motor_config.h).
+ *   2. Construct:  Motor motorFL(FL_CONFIG);
+ *      The constructor configures pins, PWM and the encoder — nothing else
+ *      is needed in setup().
+ *   3. Drive it:
+ *        motorFL.setTargetRPM(desiredRPM);
+ *        motorFL.update();            // every INTERVAL_MOTOR_CONTROL ms
+ *        float rpm = motorFL.getCurrentRPM();
+ */
 class Motor {
 public:
-    /**
-     * Konstruktor.
-     * @param config  Konfiguracja silnika (piny, przełożenie, PWM, PID)
-     */
     explicit Motor(const MotorConfig& config);
 
-    /**
-     * Ustawia wartość zadanej prędkości w RPM.
-     * @param rpm  Prędkość obrotowa w obr./min.
-     */
+    /// Sets the commanded speed in RPM. Applies invertDirection, so callers
+    /// always work in the robot convention (positive = forward).
     void setTargetRPM(float rpm);
 
     /**
-     * Główna pętla kontrolna:
-     * - Odczytuje aktualny stan enkodera,
-     * - Oblicza prędkość obrotową,
-     * - Wykonuje krok regulatora PID,
-     * - Aktualizuje wyjście PWM.
-     *
-     * Powinna być wywoływana cyklicznie co INTERVAL_MOTOR_CONTROL.
+     * Control loop step: read the encoder, derive speed, run one PID
+     * iteration, update the PWM outputs.
+     * Call every INTERVAL_MOTOR_CONTROL milliseconds.
      */
     void update();
 
-    /**
-     * Zwraca ostatnio zmierzone RPM.
-     */
+    /// Last measured speed in RPM (motor convention, i.e. inverted on the
+    /// right-hand side).
     float getCurrentRPM() const;
-    
-    // Zwraca aktualnie ustawiony target RPM dla silnika.
+
+    /// Currently commanded speed in RPM (same convention as above).
     float getTargetRPM() const;
 
-
-    /**
-     * Zwraca ostatnio obliczone wyjście regulatora (wartość PWM).
-     */
+    /// Last controller output, in PWM units.
     int getControlOutput() const;
 
-    //modyfikacja przygotowywująca do softStop i hardStop
-        /**
-     * Rozpoczyna łagodne zatrzymanie silnika (soft stop).
-     * Silnik zatrzymuje się stopniowo w określonym czasie,
-     * zmniejszając targetRPM aż do zera przy użyciu PID.
-     *
-     * @param durationMs  Czas trwania w ms
+    /**
+     * Starts a gentle stop: the commanded speed is ramped down to zero over
+     * durationMs, with the PID still regulating.
+     * @param durationMs  ramp length; 0 = the value from MotorConfig
      */
     void softStop(uint32_t durationMs = 0);
-    /**
-     * Rozpoczyna natychmiastowe zatrzymanie silnika (hard stop).
-     * Silnik zatrzymuje się natychmiastowo (kilka milisekund).
-     */
+
+    /// Cuts the drive immediately (a few milliseconds).
     void hardStop();
 
-    //metody do zmiany PID w trakcie pracy
-    /**
-     * Ustawia nowe wartości PID.
-     * @param Kp  Wzmocnienie proporcjonalne
-     * @param Ki  Wzmocnienie całkujące
-     * @param Kd  Wzmocnienie różniczkujące
-     */
+    /// Runtime PID retuning, driven remotely via MSG_SET_PID.
     void setPID(float Kp, float Ki, float Kd);
     void setOutputLimits(int min, int max);
 
-    //metody do odczytania wartosci PID
-    /**
-     * Zwraca aktualne wartości PID.
-     * @return  Struktura z wartościami PID
-     */
     float getKp() const;
     float getKi() const;
     float getKd() const;
-    int getOutputMin() const;
-    int getOutputMax() const;
-
-   
- 
-
-
+    int   getOutputMin() const;
+    int   getOutputMax() const;
 
 private:
-    MotorConfig  _cfg;         ///< Parametry konfiguracyjne silnika
-    ESP32Encoder _encoder;     ///< Obiekt enkodera
-    int          _maxPwmValue; ///< Maksymalna wartość PWM (2^resolution - 1)
+    MotorConfig  _cfg;
+    ESP32Encoder _encoder;
+    int          _maxPwmValue;      ///< 2^resolution - 1
 
-    // PID
-    float        _targetRPM   = 0.0f;  ///< Prędkość zadana przez sterowanie
-    float        _rampedTarget = 0.0f; ///< Zadana po ograniczeniu przyspieszenia
-    float        _currentRPM  = 0.0f;
-    float        _errorSum    = 0.0f;
-    float        _lastError   = 0.0f;
-    int          _controlOut  = 0;
+    // --- PID state ---
+    float _targetRPM    = 0.0f;     ///< Commanded speed
+    float _rampedTarget = 0.0f;     ///< Commanded speed after the accel limit
+    float _currentRPM   = 0.0f;
+    float _errorSum     = 0.0f;
+    float _lastError    = 0.0f;
+    int   _controlOut   = 0;
 
-    int64_t      _lastCount   = 0;      ///< Poprzedni odczyt enkodera
-    uint32_t     _lastTimeMs  = 0;      ///< Poprzedni czas pomiaru
+    int64_t  _lastCount  = 0;       ///< Previous encoder reading
+    uint32_t _lastTimeMs = 0;       ///< Timestamp of that reading
 
-
-    //modyfikacja przygotowywująca do softStop i hardStop
-    // Stan silnika
+    // --- Stop handling ---
     MotorState _state;
+    uint32_t   _softStopStartMs;    ///< When the soft stop began
+    uint32_t   _softStopDurationMs; ///< How long it should take
+    float      _initialTargetRPM;   ///< Commanded speed when it began
 
-    // Parametry softStop
-    uint32_t   _softStopStartMs;     ///< Czas rozpoczęcia softStop
-    uint32_t   _softStopDurationMs;  ///< Czas trwania softStop
-    float      _initialTargetRPM;    ///< TargetRPM przed softStop
+    // --- Live-tunable PID (copies of the config values) ---
+    float _Kp;
+    float _Ki;
+    float _Kd;
+    float _outputMin;
+    float _outputMax;
 
-    //parametry do zmiany PID
-    float      _Kp;                 ///< Wzmocnienie proporcjonalne PID
-    float      _Ki;                 ///< Wzmocnienie całkujące PID
-    float      _Kd;                 ///< Wzmocnienie różniczkujące PID
-    float      _outputMin;          ///< Minimalne wyjście regulatora (np. -maxPWM)
-    float      _outputMax;          ///< Maksymalne wyjście regulatora (np. maxPWM)
-
-
-    /**
-     * Konfiguracja i uruchomienie PWM.
-     */
     void setupPWM();
-
-    /**
-     * Konfiguracja i podłączenie enkodera.
-     */
     void setupEncoder();
 
     /**
-     * Oblicza sygnał sterujący PID w oparciu o błąd i odstęp czasu.
-     * @param error  Aktualny błąd (targetRPM - currentRPM)
-     * @param dt     Czas od ostatniego wywołania (ms)
-     * @return       Wartość wyjściowa regulatora (PWM)
+     * One PID step.
+     * @param error  targetRPM - currentRPM
+     * @param dt     time since the previous call, in MILLISECONDS
+     * @return       controller output in PWM units
      */
     float computePID(float error, float dt);
-
-    
-    
 };

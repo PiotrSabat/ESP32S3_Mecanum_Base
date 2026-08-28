@@ -3,19 +3,21 @@
 #include "parameters.h"
 
 // =====================================================================
-//  Przeliczenie wychyleń drążków na wielkości zadane dla kinematyki.
+//  Stick deflection -> the quantities the mecanum mixer consumes.
 //
-//  Plik istnieje po to, żeby firmware i symulatory liczyły to JEDNYM
-//  kodem. Wcześniej symulator trzymał własną kopię `padAxisToRPM`
-//  z komentarzem „ta sama arytmetyka" — czyli dokładnie taki duplikat,
-//  który po cichu się rozjeżdża i unieważnia testy.
+//  This header exists so that the firmware and the simulators compute it
+//  with ONE piece of code. The simulator used to keep its own copy of
+//  padAxisToRPM with a comment saying "same arithmetic" — exactly the kind
+//  of duplicate that silently drifts apart and invalidates the tests.
 //
-//  Bez zależności od Arduino.h, żeby symulator budował się na komputerze.
+//  Deliberately free of any Arduino.h dependency, so the simulators build
+//  on a desktop machine.
 // =====================================================================
 
-/// Oś jazdy: wychylenie drążka na prędkość koła w RPM.
-/// Poza martwą strefą skala jest liniowa i rozciągnięta tak, by tuż za jej
-/// krawędzią prędkość startowała od zera — inaczej drążek „łapałby" skokiem.
+/// Drive axis: stick deflection -> wheel speed in RPM.
+/// Outside the dead zone the scale is linear, and stretched so that speed
+/// starts from zero right at the edge of the zone — otherwise the stick would
+/// "catch" with a jump.
 inline float padAxisToRPM(int16_t raw) {
     float v = (float)raw;
     if (v >  (float)JOYSTICK_MAX) v =  (float)JOYSTICK_MAX;
@@ -28,18 +30,19 @@ inline float padAxisToRPM(int16_t raw) {
     return sign * mag * (float)MAX_RPM;
 }
 
-/// Krzywa wykładnicza drążka. Zachowuje znak i pełny zakres — zmienia tylko
-/// rozkład czułości, zagęszczając ją wokół środka.
+/// Stick expo curve. Preserves sign and the full range — it only redistributes
+/// sensitivity, concentrating it around centre.
 inline float applyExpo(float norm, float expo) {
     return (1.0f - expo) * norm + expo * norm * norm * norm;
 }
 
-/// Oś obrotu: wychylenie drążka na człon obrotu w RPM.
+/// Turn axis: stick deflection -> the rotation term, in RPM.
 ///
-/// Prawy drążek steruje CIASNOŚCIĄ ŁUKU, nie wprost prędkością obrotu — przy
-/// jeździe człon obrotu rośnie z prędkością, więc lekki ruch drążka daje
-/// szeroki łuk także przy pełnym gazie. Przy zatrzymanej platformie drążek
-/// wraca do roli obrotu w miejscu, bo łuk o zerowej prędkości nie istnieje.
+/// The right stick controls how TIGHT the arc is rather than the rotation rate
+/// directly: while driving, the rotation term scales with speed, so a small
+/// stick movement gives a wide arc even at full throttle. With the platform
+/// stopped the stick reverts to spinning in place, because an arc at zero
+/// speed does not exist.
 inline float padAxisToOmega(int16_t rawYaw, float vx, float vy) {
     float v = (float)rawYaw;
     if (v >  (float)JOYSTICK_MAX) v =  (float)JOYSTICK_MAX;
@@ -51,12 +54,13 @@ inline float padAxisToOmega(int16_t rawYaw, float vx, float vy) {
                  (float)(JOYSTICK_MAX - JOYSTICK_DEADZONE);
     float stick = sign * applyExpo(mag, TURN_EXPO);
 
-    // Długość wektora jazdy, a nie sama składowa wzdłużna: przy mecanum jazda
-    // bokiem jest pełnoprawnym ruchem i łuk ma sens także wtedy.
+    // The LENGTH of the travel vector, not just the forward component: with
+    // mecanum wheels, driving sideways is a first-class motion and an arc
+    // makes sense there too.
     float speed = sqrtf(vx * vx + vy * vy);
 
-    float omegaArc   = stick * speed * TURN_GAIN;   // łuk — rośnie z prędkością
-    float omegaPivot = stick * (float)MAX_RPM;      // piruet — pełna władza na postoju
+    float omegaArc   = stick * speed * TURN_GAIN;   // arc — grows with speed
+    float omegaPivot = stick * (float)MAX_RPM;      // pivot — full authority at rest
 
     float blend = speed / PIVOT_BLEND_RPM;
     if (blend > 1.0f) blend = 1.0f;

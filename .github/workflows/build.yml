@@ -27,8 +27,8 @@ jobs:
       - name: Build
         run: pio run
 
-      # Symulatory uruchamiają prawdziwy Motor.cpp i MecanumDrive.cpp na hoście.
-      # Wyłapują to, czego kompilacja nie sprawdzi: logikę failsafe, normalizację
-      # kinematyki, prąd hamowania i trzymanie pozycji.
-      - name: Symulacje sterowania
+      # The simulators run the real Motor.cpp and MecanumDrive.cpp on the host.
+      # They catch what a compile cannot: the failsafe logic, the kinematics
+      # normalisation, braking current and position holding.
+      - name: Control simulations
         run: ./sim/run.sh

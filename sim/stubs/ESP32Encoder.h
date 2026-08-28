@@ -1,5 +1,5 @@
-// Zaślepka enkodera — licznik globalny, sterowany przez test
-// (pole _encoder w Motor jest prywatne, więc nie da się go ustawić przez obiekt).
+// Encoder stub - a global counter driven by the test
+// (Motor::_encoder is private, so it cannot be set through the object).
 #pragma once
 #include <cstdint>
 
