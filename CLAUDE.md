@@ -122,6 +122,39 @@ przesuniętej względem właściwej.
 Zamiana wygląda na kosmetykę, a przesuwa efektywne `Ki` i `Kd` o kilka procent.
 Nie wracaj do `vTaskDelay` „dla uproszczenia".
 
+### Prawy drążek steruje ciasnością łuku, nie prędkością obrotu
+
+Wcześniej sterował wprost obrotem i miał tę samą władzę co drążek jazdy. Przy
+pełnym gazie i pełnym obrocie wychodziło lewa 180 / prawa 0 — koła po
+wewnętrznej **stały**, a platforma zaciągała zamiast wybierać łuk. Nie mogły
+zacząć kontrować, bo normalizacja skaluje wszystkie cztery koła tym samym
+współczynnikiem, a zero pozostaje zerem. Cały zakres łagodnych łuków ściskał się
+w pierwszej jednej trzeciej skoku drążka.
+
+`padAxisToOmega()` liczy człon obrotu **z prędkości jazdy**: przy pełnym gazie
+lekki ruch drążka daje szeroki łuk, a pełne wychylenie ciasny zakręt z kołami
+wewnętrznymi kontrującymi. Przy zatrzymanej platformie drążek wraca do roli
+obrotu w miejscu — bez tego łuk o zerowej prędkości nie istnieje i nie dałoby
+się obrócić w ogóle. Przejście między jednym a drugim jest płynne
+(`PIVOT_BLEND_RPM`).
+
+Wybrany świadomie wariant **terenowy**: ostry zakręt przy pełnej prędkości
+pozostaje dostępny (`TURN_GAIN` powyżej 1.0). Zmienia się rozkład czułości,
+a nie maksimum.
+
+Prędkością do skalowania jest **długość wektora jazdy**, nie sama składowa
+wzdłużna — przy mecanum jazda bokiem jest pełnoprawnym ruchem.
+
+### Kształtowanie wejścia z drążków mieszka w `src/pad_input.h`
+
+`padAxisToRPM()` i `padAxisToOmega()` są w osobnym nagłówku, bo korzystają
+z nich **zarówno firmware, jak i symulatory**. Wcześniej symulator trzymał
+własną kopię z komentarzem „ta sama arytmetyka" — czyli duplikat, który po
+cichu się rozjeżdża i unieważnia testy, nie dając żadnego objawu.
+
+Nagłówek celowo nie zależy od `Arduino.h`, żeby symulator budował się na
+komputerze.
+
 ### Ograniczenie przyspieszenia: zjazd do zera musi zostać swobodny
 
 `Motor::update()` prowadzi `_rampedTarget`, która goni `_targetRPM` z limitem

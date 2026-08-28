@@ -4,22 +4,12 @@
 #include <cmath>
 #include <cstring>
 #include "MecanumDrive.h"
+#include "pad_input.h"
 
 uint32_t g_fakeMillis=0; int g_pwm[16]={0}; int64_t g_encoderCount=0;
 
 static int failures=0;
 static void check(bool c,const char* w){ printf("  [%s] %s\n", c?" OK ":"FAIL", w); if(!c)failures++; }
-
-// Kopia padAxisToRPM z main.cpp (ta sama arytmetyka, te same stale z parameters.h)
-static float padAxisToRPM(int16_t raw){
-    float v = raw;
-    if (v >  (float)JOYSTICK_MAX) v =  (float)JOYSTICK_MAX;
-    if (v < -(float)JOYSTICK_MAX) v = -(float)JOYSTICK_MAX;
-    if (fabsf(v) < JOYSTICK_DEADZONE) return 0.0f;
-    float sign = (v>0.0f)?1.0f:-1.0f;
-    float mag = (fabsf(v)-JOYSTICK_DEADZONE)/(float)(JOYSTICK_MAX-JOYSTICK_DEADZONE);
-    return sign*mag*(float)MAX_RPM;
-}
 
 static MotorConfig mk(int ch1,int ch2){
     MotorConfig c{}; c.pwmPin1=9;c.pwmPin2=10;c.pwmChannel1=ch1;c.pwmChannel2=ch2;
@@ -86,6 +76,50 @@ int main(){
     check(fabsf(b[0]-b[3])<0.01f && fabsf(b[1]-b[2])<0.01f,
           "FL=RR oraz FR=RL - poprawny wzorzec jazdy bokiem");
     check(fabsf(b[0]+b[1])<0.01f, "lewa i prawa strona przeciwne - brak obrotu");
+
+    printf("\n=== 5. STEROWANIE LUKIEM: prawy drazek jako ciasnosc, nie obrot ===\n");
+    {
+        const float FULL = (float)MAX_RPM;
+        const int   S    = JOYSTICK_MAX;
+
+        // a) Postoj: drazek obrotu musi dawac pelny piruet, inaczej stojaca
+        //    platforma nie obrocilaby sie w ogole.
+        float wStop = padAxisToOmega(S, 0.0f, 0.0f);
+        printf("   postoj, pelny obrot           -> omega %6.1f RPM\n", wStop);
+        check(fabsf(wStop - FULL) < 0.5f, "na postoju drazek daje pelny obrot w miejscu");
+
+        // b) Pelna predkosc + pelny obrot: kola wewnetrzne maja KONTROWAC.
+        //    To jest sedno poprawki - wczesniej stawaly na zerze i platforma
+        //    zaciagala jak czolg z jedna gasienica.
+        float wFast = padAxisToOmega(S, 0.0f, FULL);
+        float fl=FULL+wFast, fr=FULL-wFast, rl=FULL-wFast, rr=FULL+wFast;
+        printf("   pelny gaz + pelny obrot       -> omega %6.1f, wewnetrzne %6.1f RPM\n",
+               wFast, fr);
+        check(wFast > FULL, "przy pelnej predkosci obrot przekracza MAX_RPM");
+        check(fr < -1.0f,   "kola wewnetrzne kontruja zamiast stawac");
+
+        // c) Male wychylenie przy pelnym gazie ma dawac LAGODNY luk:
+        //    obie strony nadal do przodu, zewnetrzna szybciej.
+        float wSoft = padAxisToOmega(S/4, 0.0f, FULL);
+        float inner = FULL - wSoft, outer = FULL + wSoft;
+        printf("   pelny gaz + cwierc obrotu     -> wewn. %6.1f, zewn. %6.1f RPM\n",
+               inner, outer);
+        check(inner > 0.0f && outer > inner, "cwierc drazka daje lagodny luk, obie strony do przodu");
+
+        // d) Krzywa wykladnicza: polowa drazka daje MNIEJ niz polowe obrotu.
+        float wHalf = padAxisToOmega(S/2, 0.0f, FULL);
+        check(wHalf < 0.5f * wFast, "krzywa wykladnicza zageszcza rozdzielczosc wokol srodka");
+
+        // e) Obrot skaluje sie z predkoscia - to odroznia luk od obrotu.
+        float wSlow = padAxisToOmega(S, 0.0f, FULL * 0.5f);
+        printf("   polowa gazu + pelny obrot     -> omega %6.1f RPM\n", wSlow);
+        check(wSlow < wFast, "wolniejsza jazda daje mniejszy czlon obrotu (luk, nie piruet)");
+
+        // f) Jazda bokiem tez liczy sie jako predkosc - przy mecanum jest
+        //    pelnoprawnym ruchem, wiec luk ma sens takze wtedy.
+        float wSide = padAxisToOmega(S, FULL, 0.0f);
+        check(fabsf(wSide - wFast) < 0.5f, "jazda bokiem daje ten sam czlon obrotu co jazda wprost");
+    }
 
     printf("\n%s (bledow: %d)\n", failures?"!!! SA BLEDY":"WSZYSTKO OK", failures);
     return failures?1:0;

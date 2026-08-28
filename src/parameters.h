@@ -67,6 +67,33 @@ constexpr int JOYSTICK_MAX = 511;
 // od szumu ADC sprawia, że zadana prędkość jest DOKŁADNIE zerowa przy
 // puszczonych drążkach — a od tego zależy wygaszanie wyjścia i całki na postoju.
 constexpr int JOYSTICK_DEADZONE = 12;
+// ===== Sterowanie skrętem =====
+// Prawy drążek steruje CIASNOŚCIĄ ŁUKU, a nie wprost prędkością obrotu.
+//
+// Wcześniej sterował wprost obrotem i miał tę samą władzę co drążek jazdy.
+// Skutek: przy pełnym gazie i pełnym obrocie wychodziło lewa 180 / prawa 0 —
+// koła po wewnętrznej stały, a platforma zaciągała zamiast wybierać łuk.
+// Koła wewnętrzne nie mogły zacząć kontrować, bo normalizacja skaluje wszystkie
+// cztery tym samym współczynnikiem i zero pozostaje zerem. Cały zakres
+// łagodnych łuków ściskał się w pierwszej jednej trzeciej skoku drążka.
+//
+// Wariant TERENOWY (wybrany świadomie): ostry zakręt przy pełnej prędkości
+// pozostaje dostępny. Zmienia się rozkład czułości, a nie maksimum.
+
+// Ile obrotu przypada na jednostkę prędkości jazdy przy pełnym wychyleniu.
+// Wartość 1.0 zatrzymuje koła wewnętrzne; powyżej zaczynają kontrować, co daje
+// prawdziwy ciasny zakręt zamiast zaciągania.
+constexpr float TURN_GAIN = 1.6f;
+
+// Krzywa drążka obrotu: 0 = liniowa, 1 = czysto sześcienna. Zagęszcza
+// rozdzielczość wokół środka, nie ruszając końcówki zakresu.
+constexpr float TURN_EXPO = 0.6f;
+
+// Poniżej tej prędkości jazdy drążek wraca do roli obrotu w miejscu. Bez tego
+// przy zatrzymanej platformie nie dałoby się obrócić w ogóle, bo łuk przy
+// zerowej prędkości nie istnieje. Przejście jest płynne, nie skokowe.
+constexpr float PIVOT_BLEND_RPM = 20.0f;
+
 // ===== Safety Parameters =====
 constexpr uint32_t DEFAULT_SOFT_STOP_DURATION_MS = 500;  // Czas domyślnego soft stopu (ms)
 constexpr uint32_t DEFAULT_HARD_STOP_DURATION_MS = 50;  // Czas domyślnego hard stopu (ms)

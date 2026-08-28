@@ -7,6 +7,7 @@
 #include "Motor.h"
 #include "MecanumDrive.h"
 #include "messages.h"
+#include "pad_input.h"
 #if __has_include("mac_addresses_private.h")
   #include "mac_addresses_private.h"
 #else
@@ -75,19 +76,6 @@ static TaskHandle_t telemetryTaskHandle = nullptr;
 
 // Peer info dla ESP-NOW
 static esp_now_peer_info_t peerPad;
-
-// Przeliczenie osi joysticka (±JOYSTICK_MAX z pada) na prędkość w RPM.
-// Poza martwą strefą skala jest liniowa i rozciągnięta tak, by tuż za jej
-// krawędzią prędkość startowała od zera — inaczej drążek „łapałby" skokiem.
-static float padAxisToRPM(int16_t raw) {
-    float v = constrain((float)raw, -(float)JOYSTICK_MAX, (float)JOYSTICK_MAX);
-    if (fabsf(v) < JOYSTICK_DEADZONE) return 0.0f;
-
-    float sign = (v > 0.0f) ? 1.0f : -1.0f;
-    float mag  = (fabsf(v) - JOYSTICK_DEADZONE) /
-                 (float)(JOYSTICK_MAX - JOYSTICK_DEADZONE);
-    return sign * mag * (float)MAX_RPM;
-}
 
 // Callback ESP-NOW.
 // Typ wiadomości rozpoznajemy po PIERWSZYM BAJCIE, a długość sprawdzamy przed
@@ -219,8 +207,11 @@ void motorControlTask(void* parameter) {
                 failsafeActive  = false;
                 Serial.println("✅ Łączność z padem przywrócona");
             }
-            // Kinematyka Mecanum — wejście przeliczone z jednostek drążka na RPM
-            drive.drive(padAxisToRPM(x), padAxisToRPM(y), padAxisToRPM(yaw));
+            // Kinematyka Mecanum — wejście przeliczone z jednostek drążka na RPM.
+            // Obrót liczony na końcu, bo zależy od prędkości jazdy.
+            const float vxRpm = padAxisToRPM(x);
+            const float vyRpm = padAxisToRPM(y);
+            drive.drive(vxRpm, vyRpm, padAxisToOmega(yaw, vxRpm, vyRpm));
         } else if (!failsafeEngaged) {
             // Odcinamy zasilanie silników dokładnie raz. Przekładnia 120:1
             // zatrzyma platformę sama — hamowanie silnikiem tylko ciągnęłoby
