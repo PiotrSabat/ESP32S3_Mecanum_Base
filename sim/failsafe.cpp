@@ -17,7 +17,7 @@ static const MotorConfig TEST_CFG = {
     .pwmPin1 = 9, .pwmPin2 = 10, .pwmChannel1 = 0, .pwmChannel2 = 1,
     .encoderPinA = 1, .encoderPinB = 2,
     .invertDirection = false,
-    .gearRatio = 960, .pwmResolution = 9, .pwmFrequency = 20000,
+    .gearRatio = 1920, .pwmResolution = 9, .pwmFrequency = 20000,
     .Kp = 0.55f, .Ki = 0.03f, .Kd = 0.001f,
     .outputMin = -511.0f, .outputMax = 511.0f,
     .softStopDurationMs = 500, .hardStopDurationMs = 50
@@ -30,13 +30,13 @@ static void check(bool cond, const char* what) {
 }
 
 // Prosty model silnika: obroty nadążają za wypełnieniem PWM.
-// 511 jednostek PWM ~ 180 RPM. Nie musi być wierny — chodzi o to,
+// 511 jednostek PWM ~ MAX_RPM. Nie musi być wierny — chodzi o to,
 // by enkoder w ogóle reagował i pętla PID nie liczyła w próżni.
 static void advance(Motor& m, uint32_t ms) {
     int pwm = g_pwm[0] - g_pwm[1];             // znak = kierunek
-    float rpm = (pwm / 511.0f) * 180.0f;
+    float rpm = (pwm / 511.0f) * (float)MAX_RPM;
     float revs = rpm * (ms / 60000.0f);
-    g_encoderCount += (int64_t)llround(revs * 960.0);
+    g_encoderCount += (int64_t)llround(revs * (double)DEFAULT_GEAR_RATIO);
     g_fakeMillis += ms;
     m.update();
 }
@@ -44,15 +44,15 @@ static void advance(Motor& m, uint32_t ms) {
 int main() {
     Motor m(TEST_CFG);
 
-    printf("\n=== 1. Jazda normalna: silnik rozpedza sie do zadanych 100 RPM ===\n");
+    printf("\n=== 1. Jazda normalna: silnik rozpedza sie do zadanych 50 RPM ===\n");
     for (int i = 0; i < 100; i++) {                 // 2 s rozpedzania
-        m.setTargetRPM(100.0f);
+        m.setTargetRPM(50.0f);
         advance(m, INTERVAL_MOTOR_CONTROL);
     }
     printf("  target=%.1f  current=%.1f  pwm=%d\n",
            m.getTargetRPM(), m.getCurrentRPM(), m.getControlOutput());
-    check(m.getTargetRPM() == 100.0f, "targetRPM trzyma zadana wartosc");
-    check(m.getCurrentRPM() > 50.0f,  "silnik faktycznie sie kreci");
+    check(m.getTargetRPM() == 50.0f, "targetRPM trzyma zadana wartosc");
+    check(m.getCurrentRPM() > 25.0f,  "silnik faktycznie sie kreci");
 
     printf("\n=== 2. Utrata lacznosci: hardStop(), drive() juz NIE wolane ===\n");
     m.hardStop();
@@ -79,20 +79,20 @@ int main() {
 
     printf("\n=== 4. Powrot lacznosci: drive() znow wolane ===\n");
     for (int i = 0; i < 50; i++) {
-        m.setTargetRPM(100.0f);
+        m.setTargetRPM(50.0f);
         advance(m, INTERVAL_MOTOR_CONTROL);
     }
     printf("  target=%.1f  current=%.1f\n", m.getTargetRPM(), m.getCurrentRPM());
-    check(m.getTargetRPM() == 100.0f, "sterowanie wraca po odzyskaniu lacznosci");
-    check(m.getCurrentRPM() > 50.0f,  "silnik znow sie kreci");
+    check(m.getTargetRPM() == 50.0f, "sterowanie wraca po odzyskaniu lacznosci");
+    check(m.getCurrentRPM() > 25.0f,  "silnik znow sie kreci");
 
     printf("\n=== 5. Przypadek brzegowy: lacznosc wraca W TRAKCIE rampy ===\n");
-    m.setTargetRPM(100.0f);
+    m.setTargetRPM(50.0f);
     advance(m, INTERVAL_MOTOR_CONTROL);
     m.softStop(250);
     advance(m, 60);                                  // 60 ms rampy
     float midRamp = m.getTargetRPM();
-    m.setTargetRPM(100.0f);                          // niby-powrot lacznosci
+    m.setTargetRPM(50.0f);                          // niby-powrot lacznosci
     advance(m, INTERVAL_MOTOR_CONTROL);
     float afterCmd = m.getTargetRPM();
     printf("  target w trakcie rampy=%.1f, po probie sterowania=%.1f\n",
@@ -102,11 +102,11 @@ int main() {
 
     int steps = 0;
     while (m.getTargetRPM() != 0.0f && steps < 50) { advance(m, INTERVAL_MOTOR_CONTROL); steps++; }
-    m.setTargetRPM(100.0f);
+    m.setTargetRPM(50.0f);
     advance(m, INTERVAL_MOTOR_CONTROL);
     printf("  rampa zakonczona po %d ms, target po komendzie=%.1f\n",
            steps * INTERVAL_MOTOR_CONTROL, m.getTargetRPM());
-    check(m.getTargetRPM() == 100.0f, "po zakonczeniu rampy sterowanie wraca");
+    check(m.getTargetRPM() == 50.0f, "po zakonczeniu rampy sterowanie wraca");
     check(steps * INTERVAL_MOTOR_CONTROL <= 300, "opoznienie powrotu ograniczone (<= 300 ms)");
 
     printf("\n=== 6. Przepelnienie millis() po ~49.7 dnia ===\n");
@@ -119,7 +119,7 @@ int main() {
     check(!aliveAfterWrap, "po przewinieciu zegara cisza 500 ms wciaz wykryta");
 
     printf("\n=== 7. Czy zatrzask jest KONIECZNY? softStop() wolany co 20 ms ===\n");
-    for (int i = 0; i < 60; i++) { m.setTargetRPM(100.0f); advance(m, INTERVAL_MOTOR_CONTROL); }
+    for (int i = 0; i < 60; i++) { m.setTargetRPM(50.0f); advance(m, INTERVAL_MOTOR_CONTROL); }
     printf("  start: target=%.1f current=%.1f\n", m.getTargetRPM(), m.getCurrentRPM());
     for (int i = 0; i < 40; i++) {                   // 800 ms ciszy
         m.softStop(250);       // BEZ zatrzasku - za kazdym razem

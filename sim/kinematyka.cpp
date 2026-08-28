@@ -24,8 +24,8 @@ static float padAxisToRPM(int16_t raw){
 static MotorConfig mk(int ch1,int ch2){
     MotorConfig c{}; c.pwmPin1=9;c.pwmPin2=10;c.pwmChannel1=ch1;c.pwmChannel2=ch2;
     c.encoderPinA=1;c.encoderPinB=2;c.invertDirection=false;   // bez inwersji, by czytac wprost
-    c.gearRatio=960;c.pwmResolution=9;c.pwmFrequency=20000;
-    c.Kp=3.0f;c.Ki=0.03f;c.Kd=50.0f;c.outputMin=-511;c.outputMax=511;
+    c.gearRatio=1920;c.pwmResolution=9;c.pwmFrequency=20000;
+    c.Kp=6.0f;c.Ki=0.06f;c.Kd=100.0f;c.outputMin=-511;c.outputMax=511;
     c.softStopDurationMs=500;c.hardStopDurationMs=50; return c;
 }
 

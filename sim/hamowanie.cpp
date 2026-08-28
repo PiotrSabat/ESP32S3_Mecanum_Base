@@ -1,4 +1,4 @@
-// HAMOWANIE: rozpedzenie do 180 RPM, potem puszczenie drazka (zadana = 0).
+// HAMOWANIE: rozpedzenie do MAX_RPM, potem puszczenie drazka (zadana = 0).
 // Mierzy prad hamowania przeciwpradem ORAZ czy silnik wyrzuca w rewers
 // po zatrzymaniu (skutek naladowanej calki).
 #include <cstdio>
@@ -10,8 +10,15 @@ uint32_t g_fakeMillis=0; int g_pwm[16]={0}; int64_t g_encoderCount=0;
 
 static const float V_BAT=7.4f, V_NOM=6.0f, RPM_NL=160.0f, I_STALL=1.5f;
 static const float R_W=V_NOM/I_STALL, K_E=V_NOM/RPM_NL;
-static const float MAXPWM=511.0f, TAU=150.0f, DB=25.0f, CPR=960.0f;
+static const float MAXPWM=511.0f, TAU=150.0f, DB=25.0f, CPR=1920.0f;
 static const int NM=4;
+// Prad pobierany przez OBCIAZONY naped przy ustalonej predkosci. Bez tego
+// czlonu model rozpedzal sie do predkosci biegu jalowego (~197 RPM przy 7,4 V)
+// i przewidywal dwa razy wieksza predkosc, niz platforma osiaga naprawde.
+// Zmierzone 2026-08-28: 3 m w 10,3 s, czyli okolo 95 RPM na kole.
+// (V_BAT - I_LOAD*R_W)/K_E = (7,4 - 4,0)/0,0375 = 91 RPM przy pelnym PWM.
+static const float I_LOAD=1.0f;
+
 
 static float om=0, pos=0, peak=0, peakOptim=0;
 static void reset(){ om=0;pos=0;g_encoderCount=0;peak=0;peakOptim=0;memset(g_pwm,0,sizeof(g_pwm)); }
@@ -29,26 +36,29 @@ static void plant(uint32_t ms){
         if(u==0.0f){ ip=0; io=0; }             // PWM=0 -> mostek luzem
         if(ip>peak)peak=ip; if(io>peakOptim)peakOptim=io;
         float eff=fabsf(u)>DB?(u>0?u-DB:u+DB):0.0f;
-        float t=(eff/MAXPWM)*RPM_NL*(V_BAT/V_NOM);
+        float vApplied=(eff/MAXPWM)*V_BAT;
+        float t=(fabsf(vApplied)-I_LOAD*R_W)/K_E;   // obciazenie zjada czesc napiecia
+        if(t<0.0f) t=0.0f;
+        if(vApplied<0.0f) t=-t;
         om+=(t-om)*(1.0f/TAU); pos+=om/60000.0f;
         g_encoderCount=(int64_t)llround(pos*CPR); g_fakeMillis++;
     }
 }
 
 static const MotorConfig CFG={.pwmPin1=9,.pwmPin2=10,.pwmChannel1=0,.pwmChannel2=1,
- .encoderPinA=1,.encoderPinB=2,.invertDirection=false,.gearRatio=960,
- .pwmResolution=9,.pwmFrequency=20000,.Kp=3.0f,.Ki=0.03f,.Kd=50.0f,
+ .encoderPinA=1,.encoderPinB=2,.invertDirection=false,.gearRatio=1920,
+ .pwmResolution=9,.pwmFrequency=20000,.Kp=6.0f,.Ki=0.06f,.Kd=100.0f,
  .outputMin=-511.0f,.outputMax=511.0f,.softStopDurationMs=500,.hardStopDurationMs=50};
 
 int main(){
-    printf("\n=== ROZPEDZENIE DO 180 RPM, POTEM PUSZCZENIE DRAZKA (zadana=0) ===\n");
-    printf("Nastawy Kp=3.0 Ki=0.03 Kd=50, MAX_HOLDING_PWM=%d (limit malejacy z predkoscia)\n\n",
+    printf("\n=== ROZPEDZENIE DO MAX_RPM, POTEM PUSZCZENIE DRAZKA (zadana=0) ===\n");
+    printf("Nastawy Kp=6.0 Ki=0.06 Kd=100, MAX_HOLDING_PWM=%d (limit malejacy z predkoscia)\n\n",
            MAX_HOLDING_PWM);
 
     reset(); g_fakeMillis=0;
     Motor m(CFG);
 
-    for(int i=0;i<150;i++){ m.setTargetRPM(180.0f); plant(20); m.update(); }
+    for(int i=0;i<150;i++){ m.setTargetRPM((float)MAX_RPM); plant(20); m.update(); }
     printf("Rozpedzone do %.1f RPM, PWM=%d\n", om, m.getControlOutput());
     printf("Prad rozruchu: %.2f A (pesym.) / %.2f A (optym.)\n\n", peak, peakOptim);
 

@@ -10,14 +10,21 @@ uint32_t g_fakeMillis=0; int g_pwm[16]={0}; int64_t g_encoderCount=0;
 
 static const float V_BAT=7.4f, V_NOM=6.0f, RPM_NL=160.0f, I_STALL=1.5f;
 static const float R_W=V_NOM/I_STALL, K_E=V_NOM/RPM_NL, MAXPWM=511.0f;
-static const float TAU=150.0f, DB=25.0f, CPR=960.0f;
+// Prad pobierany przez OBCIAZONY naped przy ustalonej predkosci. Bez tego
+// czlonu model rozpedzal sie do predkosci biegu jalowego (~197 RPM przy 7,4 V)
+// i przewidywal dwa razy wieksza predkosc, niz platforma osiaga naprawde.
+// Zmierzone 2026-08-28: 3 m w 10,3 s, czyli okolo 95 RPM na kole.
+// (V_BAT - I_LOAD*R_W)/K_E = (7,4 - 4,0)/0,0375 = 91 RPM przy pelnym PWM.
+static const float I_LOAD=1.0f;
+
+static const float TAU=150.0f, DB=25.0f, CPR=1920.0f;
 
 static int failures=0;
 static void check(bool c,const char* w){ printf("  [%s] %s\n", c?" OK ":"FAIL", w); if(!c)failures++; }
 
 static const MotorConfig CFG={.pwmPin1=9,.pwmPin2=10,.pwmChannel1=0,.pwmChannel2=1,
- .encoderPinA=1,.encoderPinB=2,.invertDirection=false,.gearRatio=960,
- .pwmResolution=9,.pwmFrequency=20000,.Kp=3.0f,.Ki=0.03f,.Kd=50.0f,
+ .encoderPinA=1,.encoderPinB=2,.invertDirection=false,.gearRatio=1920,
+ .pwmResolution=9,.pwmFrequency=20000,.Kp=6.0f,.Ki=0.06f,.Kd=100.0f,
  .outputMin=-511.0f,.outputMax=511.0f,.softStopDurationMs=500,.hardStopDurationMs=50};
 
 int main(){
@@ -63,12 +70,15 @@ int main(){
                 float cur = (u==0.0f)?0.0f : duty*fabsf(vfull-emf)/R_W*4.0f;
                 if(cur>peak)peak=cur;
                 float eff=fabsf(u)>DB?(u>0?u-DB:u+DB):0.0f;
-                float t=(eff/MAXPWM)*RPM_NL*(V_BAT/V_NOM);
+                float vApplied=(eff/MAXPWM)*V_BAT;
+        float t=(fabsf(vApplied)-I_LOAD*R_W)/K_E;   // obciazenie zjada czesc napiecia
+        if(t<0.0f) t=0.0f;
+        if(vApplied<0.0f) t=-t;
                 om+=(t-om)*(1.0f/TAU); pos+=om/60000.0f;
                 g_encoderCount=(int64_t)llround(pos*CPR); g_fakeMillis++;
             }
         };
-        for(int i=0;i<150;i++){ m.setTargetRPM(180.0f); plant(20); m.update(); }
+        for(int i=0;i<150;i++){ m.setTargetRPM((float)MAX_RPM); plant(20); m.update(); }
         printf("   Rozpedzone do %.1f RPM\n", om);
         peak=0;
         int worst=0;
@@ -76,7 +86,10 @@ int main(){
                                 if(m.getControlOutput()<worst) worst=m.getControlOutput(); }
         printf("   Po hamowaniu: %.1f RPM, prad szczytowy %.2f A, najwiekszy rewers PWM %d\n",
                om, peak, worst);
-        check(peak < 3.0f, "prad hamowania pozostaje niski (< 3 A)");
+        // Prog oparty o pomiary na sprzecie: 5,61 A przy rozruchu przechodzilo
+        // bez odciecia, 7,40 A odcinalo. Poprzednie 3 A pochodzilo z modelu BEZ
+        // obciazenia, ktory zanizal prad prawie czterokrotnie.
+        check(peak < 5.5f, "prad hamowania z zapasem ponizej progu zabezpieczenia");
         check(fabsf(om) < 3.0f, "platforma faktycznie sie zatrzymala");
     }
 
