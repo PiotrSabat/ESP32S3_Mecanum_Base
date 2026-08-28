@@ -80,14 +80,31 @@ constexpr int JOYSTICK_DEADZONE = 12;
 // Wariant TERENOWY (wybrany świadomie): ostry zakręt przy pełnej prędkości
 // pozostaje dostępny. Zmienia się rozkład czułości, a nie maksimum.
 
-// Ile obrotu przypada na jednostkę prędkości jazdy przy pełnym wychyleniu.
-// Wartość 1.0 zatrzymuje koła wewnętrzne; powyżej zaczynają kontrować, co daje
-// prawdziwy ciasny zakręt zamiast zaciągania.
-constexpr float TURN_GAIN = 1.6f;
+// Jak mocno mają pracować koła po WEWNĘTRZNEJ stronie przy pełnym wychyleniu
+// drążka obrotu i pełnym gazie. Wartość jest ułamkiem prędkości kół
+// zewnętrznych: 0 = stoją, wartość ujemna = kontrują.
+//
+// To jest właściwa pokrętka do strojenia odczucia zakrętu, bo opisuje wprost
+// to, co widać na podłodze. Przy -0.23 (tak wychodziło przy pierwszym podejściu)
+// wewnętrzne koła głównie hamowały; przy -0.55 obie strony pracują.
+//
+// Uwaga: to jest wartość ZADANA. Ile z niej faktycznie dojdzie do skutku
+// w chwili wchodzenia w zakręt, ogranicza limit momentu przeciwnego
+// (MAX_HOLDING_PWM) — koło toczące się jeszcze do przodu nie dostanie pełnego
+// rewersu, bo to właśnie ten przypadek wywala zabezpieczenie ogniw.
+constexpr float TURN_INNER_RATIO_FULL = -0.55f;
+
+// Wzmocnienie wynikające z powyższego. Przy pełnym gazie i pełnym wychyleniu
+// koła dostają vy*(1+G) i vy*(1-G), a normalizacja dzieli przez (1+G), więc
+// stosunek wewnętrznych do zewnętrznych wynosi (1-G)/(1+G) = r. Stąd:
+constexpr float TURN_GAIN = (1.0f - TURN_INNER_RATIO_FULL) /
+                            (1.0f + TURN_INNER_RATIO_FULL);
 
 // Krzywa drążka obrotu: 0 = liniowa, 1 = czysto sześcienna. Zagęszcza
-// rozdzielczość wokół środka, nie ruszając końcówki zakresu.
-constexpr float TURN_EXPO = 0.6f;
+// rozdzielczość wokół środka, nie ruszając końcówki zakresu. Podniesiona
+// razem z TURN_GAIN, żeby mocniejsza końcówka nie zabrała łagodnych łuków
+// z okolic środka drążka.
+constexpr float TURN_EXPO = 0.75f;
 
 // Poniżej tej prędkości jazdy drążek wraca do roli obrotu w miejscu. Bez tego
 // przy zatrzymanej platformie nie dałoby się obrócić w ogóle, bo łuk przy

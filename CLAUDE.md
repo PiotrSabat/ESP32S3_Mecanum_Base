@@ -139,8 +139,20 @@ się obrócić w ogóle. Przejście między jednym a drugim jest płynne
 (`PIVOT_BLEND_RPM`).
 
 Wybrany świadomie wariant **terenowy**: ostry zakręt przy pełnej prędkości
-pozostaje dostępny (`TURN_GAIN` powyżej 1.0). Zmienia się rozkład czułości,
-a nie maksimum.
+pozostaje dostępny. Zmienia się rozkład czułości, a nie maksimum.
+
+Pokrętłem do strojenia jest **`TURN_INNER_RATIO_FULL`**, a nie `TURN_GAIN` —
+opisuje wprost to, co widać na podłodze: jaki ułamek prędkości kół zewnętrznych
+mają koła wewnętrzne przy pełnym wychyleniu. Wartość ujemna oznacza kontrowanie.
+`TURN_GAIN` jest z niej **wyliczane**, bo normalizacja dzieli przez `(1+G)`
+i stosunek stron wychodzi `(1-G)/(1+G)`. Przy pierwszym podejściu wyszło −0,23
+i wewnętrzne koła głównie hamowały; przy −0,55 obie strony pracują.
+
+Ile z zadanej proporcji dojdzie do skutku **w chwili wchodzenia w zakręt**,
+ogranicza limit momentu przeciwnego: koło toczące się jeszcze do przodu nie
+dostanie pełnego rewersu, bo to dokładnie ten przypadek wywala zabezpieczenie
+ogniw. To ograniczenie jest zamierzone i nie należy go obchodzić — w ustalonym
+zakręcie, gdy koła wewnętrzne już się cofają, przestaje obowiązywać.
 
 Prędkością do skalowania jest **długość wektora jazdy**, nie sama składowa
 wzdłużna — przy mecanum jazda bokiem jest pełnoprawnym ruchem.

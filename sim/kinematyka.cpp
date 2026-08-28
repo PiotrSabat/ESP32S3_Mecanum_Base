@@ -115,7 +115,22 @@ int main(){
         printf("   polowa gazu + pelny obrot     -> omega %6.1f RPM\n", wSlow);
         check(wSlow < wFast, "wolniejsza jazda daje mniejszy czlon obrotu (luk, nie piruet)");
 
-        // f) Jazda bokiem tez liczy sie jako predkosc - przy mecanum jest
+        // f) Proporcja kol PO NORMALIZACJI - to jest liczba, ktora operator
+        //    faktycznie widzi na podlodze. TURN_INNER_RATIO_FULL ma ja opisywac
+        //    wprost, inaczej pokretlo do strojenia klamie.
+        {
+            Motor fl(mk(0,1)), fr(mk(2,3)), rl(mk(4,5)), rr(mk(6,7));
+            MecanumDrive d(&fl,&fr,&rl,&rr);
+            d.drive(0.0f, FULL, padAxisToOmega(S, 0.0f, FULL));
+            float outer = fl.getTargetRPM(), inner = fr.getTargetRPM();
+            float ratio = inner / outer;
+            printf("   po normalizacji: zewn %6.1f  wewn %6.1f  -> stosunek %+5.2f"
+                   " (zadany %+5.2f)\n", outer, inner, ratio, TURN_INNER_RATIO_FULL);
+            check(fabsf(ratio - TURN_INNER_RATIO_FULL) < 0.03f,
+                  "kola wewnetrzne pracuja w zadanej proporcji do zewnetrznych");
+        }
+
+        // g) Jazda bokiem tez liczy sie jako predkosc - przy mecanum jest
         //    pelnoprawnym ruchem, wiec luk ma sens takze wtedy.
         float wSide = padAxisToOmega(S, FULL, 0.0f);
         check(fabsf(wSide - wFast) < 0.5f, "jazda bokiem daje ten sam czlon obrotu co jazda wprost");
