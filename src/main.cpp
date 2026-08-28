@@ -40,9 +40,18 @@ static volatile bool     padEverSeen    = false;  // has any frame arrived at al
 static volatile bool     failsafeActive = false;  // observed by telemetry
 
 // ---- Protocol state (see the header of messages.h) ----
-// padProtoOk is a LATCH: once a matching version has been seen it stays. A
-// single lost HELLO must not stop a moving platform — detecting silence is the
-// failsafe's job, and it measures the time since the last control frame.
+// padProtoOk survives a LOST hello, but not a MISMATCHED one.
+//
+// A hello that never arrives is an absence of evidence: a single dropped frame
+// must not stop a moving platform, and detecting silence is the failsafe's job
+// anyway. A hello that does arrive carrying a different version is evidence to
+// the contrary. Treating both the same way — as an earlier version did, by only
+// ever setting this flag to true — meant a platform that had agreed once would
+// keep driving after the pad was reflashed with an incompatible protocol.
+//
+// The length check on MSG_PAD_CONTROL catches a change of struct SIZE, but not
+// a rearrangement of fields at the same size. That second case is precisely
+// what PROTO_VERSION exists to catch, so it has to be able to say "no" again.
 static volatile uint8_t  padProtoVersion = 0;
 static volatile bool     padProtoOk      = false;
 static volatile uint32_t protoErrorCount = 0;   // frames of unknown type/length
@@ -86,6 +95,15 @@ static esp_now_peer_info_t peerPad;
 // previously "nothing arrived" and "something foreign arrived" looked alike.
 void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
     static uint32_t padFrameCounter = 0;
+
+    // Only the pad may talk to us. ESP-NOW raises the receive callback for ANY
+    // sender on the channel — registering a peer governs sending, not
+    // receiving — and this device's MAC travels in clear text in the header of
+    // every frame it transmits, so it is there for the taking. Without this
+    // check a foreign device could drive the platform; and now that a
+    // mismatched HELLO clears padProtoOk, it could also stop it at will.
+    if (mac == nullptr || memcmp(mac, macPadXiao, 6) != 0) return;
+
     if (len < 1) return;
     const uint8_t type = incomingData[0];
 
@@ -123,7 +141,7 @@ void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
         memcpy(&hello, incomingData, sizeof(hello));
         if (hello.role != ROLE_PAD) break;
         padProtoVersion = hello.protoVersion;
-        if (hello.protoVersion == PROTO_VERSION) padProtoOk = true;
+        padProtoOk      = (hello.protoVersion == PROTO_VERSION);
         return;
     }
 
