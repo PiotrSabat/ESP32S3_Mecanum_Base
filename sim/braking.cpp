@@ -34,7 +34,8 @@ static void plant(uint32_t ms){
         float vfull=(u>0?V_BAT:-V_BAT);
         float io=duty*fabsf(vfull-emf)/R_W*NM;
         if(u==0.0f){ ip=0; io=0; }             // PWM=0 -> bridge floating
-        if(ip>peak)peak=ip; if(io>peakOptim)peakOptim=io;
+        if(ip>peak)peak=ip;
+        if(io>peakOptim)peakOptim=io;
         float eff=fabsf(u)>DB?(u>0?u-DB:u+DB):0.0f;
         float vApplied=(eff/MAXPWM)*V_BAT;
         float t=(fabsf(vApplied)-I_LOAD*R_W)/K_E;   // the load eats part of the voltage

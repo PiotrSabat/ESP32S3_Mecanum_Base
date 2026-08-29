@@ -1,5 +1,8 @@
 # CLAUDE.md — Mecanum Platform (ESP32-S3)
 
+> Working notes for this repository, kept in Polish by choice. Everything a
+> user or contributor needs is in README.md and docs/, in English.
+
 Firmware czterokołowej platformy mecanum. Ten plik zawiera wyłącznie rzeczy,
 których nie widać z samego kodu: trwałe niezmienniki i decyzje architektoniczne.
 Świadomie **nie** ma tu statusu prac, planów ani nazw gałęzi — to rotuje
@@ -302,6 +305,11 @@ decyzją Piotra. Szczegóły i limit szerokości ekranu są w `CLAUDE.md` Pada.
 
 ## Znane luki
 
+- **Po Serialu piszą dwa zadania:** `motorControlTask` (rdzeń 1) i `helloTask`
+  (rdzeń 0). Własna lekcja tego projektu mówi „tylko jeden task". Stan jest
+  **znany i zaakceptowany w wersji 1** — nie wprowadziło go cięcie protokołu v4,
+  wcześniej drugim pisarzem był `pidCommandTask`. Nie przebudowywać teraz;
+  wpis istnieje po to, żeby nikt nie odkrywał tego drugi raz jako nowości.
 - **Failsafe hamuje wybiegiem, a przekładnia okazała się odwracalna.** Po ciszy
   dłuższej niż `PAD_LINK_TIMEOUT_MS` `motorControlTask` woła `hardStop()` i
   przestaje wołać `drive()`. Komentarz przy tym kodzie uzasadnia wybieg tym, że

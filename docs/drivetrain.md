@@ -83,23 +83,74 @@ rotations in 13 s (2026-08-28) is **138.5 °/s**, and 13.1 s on 2026-08-29 is
 **137.4 °/s** — both directions, repeatable, on either side of a reflash. That
 is about 15 % more than the geometry predicts.
 
-The obvious explanations have been ruled out. The spacings above were measured
-centre-to-centre and re-confirmed. Roller slip would push the measurement the
-other way, making it *lower* than predicted, not higher. And a pure rotation
-never triggers the mixer's normalisation, so no wheel is being scaled.
+Some explanations have been ruled out. The spacings above were measured
+centre-to-centre and re-confirmed, and a pure rotation never triggers the
+mixer's normalisation, so no wheel is being scaled.
 
-**The wheels cannot be the explanation either**, and the two measurements
-together are what show it. Turning at 137.4 °/s with `lx + ly = 0.135 m` would
-require a wheel speed of 0.324 m/s, i.e. **103 RPM** — above the ~91 RPM the
-straight-line run measures as the ceiling, on the same battery and the same
+**Roller behaviour has NOT been ruled out — only half of it has.** The two
+cases point in opposite directions and must not be lumped together:
+
+- **Rollers slipping along their own axis** — the wheel travels less than its
+  revolutions claim. This makes the measurement come out *lower* than predicted,
+  so it cannot explain a figure that is too *high*. This is the case the
+  paragraph above rules out, and the only one.
+- **Rollers not turning freely** — a stiff or loaded roller scrubs instead of
+  rolling, and the wheel starts behaving like a plain wheel. A pivot then shifts
+  away from mecanum kinematics and towards skid-steer, where the effective lever
+  arm is `ly` alone instead of `lx + ly`. A shorter lever arm at the same wheel
+  speed means a *higher* angular rate — which is the direction actually
+  observed.
+
+The two models bracket the measurement. Both predictions are computed from the
+same straight-line run (3 m in 10.5 s = 0.286 m/s, i.e. 90.9 RPM at the wheel),
+so they are directly comparable with the pivot measured on the same day. That is
+also why the mecanum figure reads 121.3 rather than the 120.0 quoted above: 120
+is what the constants give at exactly `MAX_RPM = 90`, 121.3 is the same model
+evaluated at the 90.9 RPM actually measured. Same formula, different input.
+
+| model | lever arm | predicted rotation |
+|---|---|---|
+| pure mecanum, rollers free | `lx + ly` = 0.135 m | **121.3 °/s** |
+| pure skid-steer, rollers locked | `ly` = 0.075 m | **218.3 °/s** |
+| **measured** | — | **137.4 °/s** |
+
+The measurement sits about **17 % of the way** from one model to the other —
+which is what you would expect from rollers that mostly roll but scrub a little.
+That is a hypothesis, not a conclusion: the bracket shows the idea is
+dimensionally plausible, nothing more.
+
+**The wheels spinning faster is not the explanation**, and the two measurements
+together are what show it. Turning at 137.4 °/s *while the mecanum model holds*
+would require a wheel speed of 0.324 m/s, i.e. **103 RPM** — above the ~91 RPM
+the straight-line run measures as the ceiling, on the same battery and the same
 floor. A pivot loads the drive more than driving straight, not less, so the
-wheels cannot be turning faster there. Whatever is wrong sits in the model
-between wheel revolutions and platform rotation, not in the motors.
+wheels cannot be turning faster there.
 
-It is left open rather than explained away; it is a candidate for the first
-real job for the IMU, whose gyroscope measures the platform's angular rate
-directly instead of inferring it from the wheels. Until then, treat 120 °/s as
-what the constants say and 138.5 °/s as what the floor says.
+Note what this does and does not establish. It rules out *overspeeding motors*.
+It does **not** rule out the roller hypothesis above — that one keeps the wheels
+at 90 RPM and changes the lever arm instead, which is exactly why it survives
+this argument.
+
+### Two cheap tests, before reaching for an IMU
+
+Neither needs any hardware that is not already on the robot, and each one
+eliminates a whole class of cause:
+
+1. **The same pivot on a different surface** — tiles against carpet. If the time
+   for five rotations changes, the rollers are involved and the geometry is not.
+   If it does not change, the rollers are exonerated.
+2. **Read `measuredRPM` on the wheel screen DURING a pivot.** If it shows about
+   90, the wheels are doing exactly what they are told and the suspect is the
+   model that converts their revolutions into platform rotation. If it shows
+   more, the wheels are overspeeding and the mixing is not at fault.
+
+An IMU is the *third* option, not the first: its gyroscope measures the
+platform's angular rate directly instead of inferring it from the wheels, which
+settles the question outright — but it is also the only one of the three that
+requires buying and mounting a part.
+
+Until one of them is done, treat 120 °/s as what the constants say and 137 °/s
+as what the floor says.
 
 An earlier version of this file claimed 240 °/s. That figure was correct back
 when `MAX_RPM` was 180 and it was carried over unchanged when the encoder fix

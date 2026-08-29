@@ -21,7 +21,7 @@ PID loop driving PWM outputs.
 - **ESP32-S3** as the main controller, running at 160 MHz
 - **Four DC gearmotors with encoders**, mecanum kinematics (X, Y, rotation)
 - **PWM + direction motor drivers**, 20 kHz, 9-bit resolution
-- **Closed-loop speed control** — an independent PID per motor, retunable at runtime
+- **Closed-loop speed control** — an independent PID per motor
 - **FreeRTOS** task architecture: motor control, telemetry and protocol
 - **Versioned ESP-NOW protocol** — commands one way, telemetry the other, and a
   refusal to drive if the two devices disagree about the protocol version
@@ -105,7 +105,10 @@ These are the traps that compile cleanly and pass CI, and then do not work.
   the code.
 - **PID gains are in millisecond units.** `computePID()` receives `dt` in
   milliseconds, so `Kd = 100` alongside `Kp = 6` is not a typo. Converting:
-  `Ki_ms = Ki_s / 1000`, `Kd_ms = Kd_s × 1000`.
+  `Ki_ms = Ki_s / 1000`, `Kd_ms = Kd_s × 1000`. The gains live in
+  [src/motor_config.h](src/motor_config.h) and changing them means a rebuild —
+  there is no runtime tuning path. `Motor::setPID()` stays in the class API for
+  anyone who wants to add one.
 - **Driving forwards does not test the kinematics.** With `vx = 0` every wheel
   gets the same value regardless of the signs on `vx`. Only sideways travel
   verifies the mixing.
