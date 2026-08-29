@@ -47,7 +47,9 @@ needs the distance between centres**, because that is where the force acts.
 
 `MAX_RPM = 90` is **measured**, not assumed. Two independent runs on 2026-08-28
 agreed: 3 m from a standing start in 10.3 s (0.29 m/s), and 5 platform rotations
-in 13 s in both directions.
+in 13 s in both directions. Repeated on 2026-08-29 after a fresh flash: 3 m in
+10.5 s (0.286 m/s, i.e. 90.9 RPM at the wheel) and 5 rotations in 13.1 s,
+repeatable in both directions.
 
 Those runs are also what exposed the encoder scaling error. The display was
 claiming 0.55 m/s while the stopwatch said 0.29 — the platform was measuring
@@ -77,13 +79,22 @@ Hence `RPM01_TO_DEG_S` in `messages.h`. At full turn deflection this works out
 to **120 °/s**, i.e. one third of a rotation per second.
 
 **The measurement disagrees, and the reason is not yet known.** Five platform
-rotations in 13 s (2026-08-28, both directions, repeatable) is **138.5 °/s** —
-about 15 % more than the geometry predicts.
+rotations in 13 s (2026-08-28) is **138.5 °/s**, and 13.1 s on 2026-08-29 is
+**137.4 °/s** — both directions, repeatable, on either side of a reflash. That
+is about 15 % more than the geometry predicts.
 
 The obvious explanations have been ruled out. The spacings above were measured
 centre-to-centre and re-confirmed. Roller slip would push the measurement the
 other way, making it *lower* than predicted, not higher. And a pure rotation
 never triggers the mixer's normalisation, so no wheel is being scaled.
+
+**The wheels cannot be the explanation either**, and the two measurements
+together are what show it. Turning at 137.4 °/s with `lx + ly = 0.135 m` would
+require a wheel speed of 0.324 m/s, i.e. **103 RPM** — above the ~91 RPM the
+straight-line run measures as the ceiling, on the same battery and the same
+floor. A pivot loads the drive more than driving straight, not less, so the
+wheels cannot be turning faster there. Whatever is wrong sits in the model
+between wheel revolutions and platform rotation, not in the motors.
 
 It is left open rather than explained away; it is a candidate for the first
 real job for the IMU, whose gyroscope measures the platform's angular rate
