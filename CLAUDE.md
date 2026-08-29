@@ -19,10 +19,11 @@ Osobny moduł „debug monitor" i aplikacja na iPhone zostały **porzucone**
 (decyzja z 2026-08-23), żeby szybciej dowieźć działającą całość. Rolę monitora
 przejął Pad, bo ma własny wyświetlacz i tak czy owak jest w rękach operatora.
 
-Ślady po monitorze zostały usunięte: telemetria idzie do Pada, peer i adres
-`macMonitorDebug` zniknęły, a `monitorUpdateTask` nazywa się `pidCommandTask`.
-Została sama funkcja — zdalne nastawy PID (`MSG_SET_PID`) — której nadawcą
-będzie Pad.
+Ślady po monitorze zostały usunięte: telemetria idzie do Pada, a peer i adres
+`macMonitorDebug` zniknęły. Ostatnia pozostałość — `monitorUpdateTask`
+przemianowany na `pidCommandTask`, czyli zdalne nastawy PID (`MSG_SET_PID`) —
+została wycięta w protokole v4 razem z całą wiadomością: nikt jej nigdy nie
+wysyłał, ani Pad, ani nic innego.
 
 Komunikacja SPI została porzucona razem z monitorem. Jedynym kanałem jest ESP-NOW.
 
@@ -55,11 +56,37 @@ pojęcia sesji — każda strona może zniknąć i wrócić po resecie w dowolne
 Z tego samego powodu `msgType` leci w każdej ramce: pierwszy pakiet po restarcie
 partnera musi być interpretowalny bez żadnej wcześniejszej wiedzy.
 
-Pola prądu, pozycji i IMU w `Msg_Telemetry` są **zarezerwowane** — wypełniane
-zerami do czasu, aż pojawią się boczniki i IMU. Są wśród nich `gyroYawRate`
-i `accelX/accelY`, bo koła w poślizgu kręcą się szybciej, niż jedzie robot:
-prędkość kątowa z żyroskopu porównana z tą policzoną z kół daje miarę poślizgu,
-a przyspieszenia z kół nie da się odczytać w ogóle.
+### Każde pole protokołu ma żywego konsumenta
+
+Reguła przyjęta w wersji 4 protokołu (2026-08-29): **pole wchodzi do
+`messages.h` razem z kodem, który je czyta.** Nie wcześniej.
+
+Do v3 było odwrotnie. `Msg_Telemetry` niosło 42 bajty samych zer na pola
+zarezerwowane pod boczniki, ogniwa, odometrię i IMU, plus dwa razy RSSI, dwa
+liczniki strat, czas wykonania pętli i dwa znaczniki czasu, których nikt nie
+czytał. Do tego istniała cała wiadomość `MSG_SET_PID` z zadaniem FreeRTOS
+i mutexem po stronie platformy — **bez jednego nadawcy w którymkolwiek repo**.
+Telemetria schudła z 94 do 44 bajtów, ramka sterująca z 24 do 16.
+
+Powód nie jest oszczędnościowy, tylko taki: pole bez konsumenta jest
+**obietnicą złożoną w eterze, której firmware nie dotrzymuje**, a następna
+osoba czytająca ten plik nie odróżni jej od pola działającego. Wersjonowanie
+protokołu jest dokładnie tym, co czyni tę regułę tanią — dołożenie pola
+z powrotem kosztuje jedno podbicie `PROTO_VERSION` w obu repo, czyli mniej niż
+wożenie zer przy 25 Hz i tłumaczenie ich w nieskończoność.
+
+Jedyny świadomy wyjątek to `buttons` w `Msg_PadControl`: platforma ich nie
+czyta, a pole **zostaje**. Przyciski są integralną częścią odczytu z Gamepad QT
+(drążki i przyciski lecą z tego samego zapytania do seesaw), więc wysłanie
+jednych bez drugich byłoby cięciem arbitralnym. W komplecie są oczywistym
+punktem zaczepienia dla kogoś, kto zechce zmodyfikować ten firmware. Wyjątek
+jest opisany w `messages.h` przy samym polu — żeby nie wyglądał na przeoczenie.
+
+Notatka na przyszłość, do wykorzystania przy IMU: warto wtedy dołożyć
+`gyroYawRate` oraz przyspieszenia, bo koła w poślizgu kręcą się szybciej, niż
+jedzie robot. Prędkość kątowa z żyroskopu porównana z tą policzoną z kół daje
+miarę poślizgu, a przyspieszenia z kół nie da się odczytać w ogóle. Te pola
+**nie istnieją dziś w strukturze** i mają się pojawić razem z czujnikiem.
 
 `targetRPM` i `measuredRPM` jadą w **konwencji robota** — dodatnie = do przodu
 dla każdego koła. Odwrócenie prawej strony (`invertDirection`) jest odkręcane
@@ -265,6 +292,10 @@ jest publiczne i ma trafić do ludzi spoza tego biurka. Ten plik zostaje po
 polsku, bo jest roboczy i czyta go Piotr. Nie ujednolicaj tego w żadną stronę
 bez pytania.
 
+To samo dotyczy wyjścia na `Serial` z tego repo i **napisów na wyświetlaczu
+Pada** — te ostatnie były po polsku do 2026-08-29 i zostały przetłumaczone
+decyzją Piotra. Szczegóły i limit szerokości ekranu są w `CLAUDE.md` Pada.
+
 Ściągawki sprzętowe, żeby nie zgadywać: [docs/drivetrain.md](docs/drivetrain.md)
 (koło, geometria, przeliczenia RPM) i
 [docs/current-sensing.md](docs/current-sensing.md) (moduły do pomiaru prądu).
@@ -313,17 +344,10 @@ z uzasadnieniem jest warta więcej niż lista zrobionych.
   **Niezweryfikowane** — najpierw test w `sim/`, poprawka tylko jeśli test coś
   pokaże. `counterLimit` zależy wyłącznie od `_currentRPM`, znanego przed
   wywołaniem PID, więc dałoby się podać go jako efektywne granice cyklu.
-- **`TFLAG_HARD_STOPPED` i `TFLAG_PWM_SAT` nigdy nie są ustawiane.** `Motor` nie
-  wystawia stanu ani informacji o nasyceniu. Albo dorobić dwa gettery, albo
-  usunąć bity — **usunięcie NIE wymaga podbicia `PROTO_VERSION`**, bo to stałe
-  bitowe, a nie pola: układ struktury się nie zmienia.
 - **`softStop()` jest nieosiągalny w firmware.** Wołany tylko w symulatorze;
   failsafe woła `hardStop()`. Lekarstwo na odwracalną przekładnię (punkt wyżej)
   jest więc napisane i przetestowane, tylko niepodłączone. Nie podłączać bez
   próby na pochyłości.
-- **Pola protokołu bez konsumenta:** `rssiFromPad`, `rssiFromPlatform`,
-  `platformLossPermille`, `motorCtrlTimeUs`, `mode`. Do podłączenia albo
-  usunięcia, każde osobno. (`padLossPermille` i `flags` zostały podłączone.)
 - **Prawdziwe adresy MAC zostają w historii gita.** Commit `748f7d8` dodał
   `src/mac_adersses_private.cpp` — z literówką w nazwie, więc `.gitignore` go
   nie złapał. Plik jest usunięty w HEAD, ale historia go pamięta. Ryzyko
@@ -337,6 +361,69 @@ z uzasadnieniem jest warta więcej niż lista zrobionych.
   porzucone. Zamknięte issue z jednozdaniowym powodem jest lepszą wizytówką
   niż otwarte bez. **Wymaga `gh` albo przeglądarki — nie da się zrobić
   z tego katalogu.**
+
+## Czego świadomie NIE robimy w wersji 1
+
+Sekcja wyżej mówi „znalezione, jeszcze nie zrobione". Ta mówi **„postanowione,
+że nie"** — i na tym polega jej wartość: zapisane „nie" przestaje wracać co trzy
+miesiące jako dobry pomysł.
+
+Kryterium przyjęte 2026-08-29, obowiązujące przy każdym nowym wskaźniku
+i każdej nowej warstwie: **jaką decyzję zmienia to dzisiaj?** Nie „za rok",
+nie „przy większym zasięgu". Dzisiaj. Powód jest konkretny: dwie sesje pod rząd
+dołożyły aparatury pomiarowej szybciej, niż przybyło maszyny, a robot jeździ
+trzy metry po pokoju.
+
+Granica biegnie między **infrastrukturą, która łapie błędy**, a **wskaźnikami,
+na które nikt nie patrzy**. To nie jest to samo i nie podlega tej samej ocenie.
+
+### Kryptografia i uwierzytelnianie łącza
+
+Nie proponować i nie dodawać: ESP-NOW PMK/LMK, szyfrowanych peerów, podpisów,
+liczników anty-replay, rotacji kluczy.
+
+- ESP-NOW szyfruje wyłącznie peery jednostkowe, wymaga provisioningu klucza
+  i zjada limit szyfrowanych peerów;
+- chroniłoby przed podsłuchaniem prędkości obrotowej czterech kół;
+- realne ryzyko na tym łączu to **zatkany kanał 2,4 GHz**, a na to szyfrowanie
+  nie pomaga w ogóle — pomagają numery sekwencyjne, które już są.
+
+**Filtr MAC nie należy do tej kategorii i zostaje.** Nie jest zabezpieczeniem:
+powstał dlatego, że po zmianie P0.4 dowolne HELLO z niezgodną wersją zatrzymuje
+platformę, a w zasięgu pracują własne urządzenia Piotra (monitor, BridgeTCP,
+drugi XIAO) na tym samym kanale. Kosztuje jedno `memcmp` na ramkę.
+
+### Nawigacja: LiDAR, mapowanie, autonomia
+
+Nie w wersji 1. Powód nie jest techniczny, tylko kolejnościowy: **v1 ma trafić
+do `public_release` jak najszybciej i możliwie dopracowana, nawet bez kompletu
+funkcji.** Dopracowane sterowanie czterema kołami jest rzeczą skończoną;
+sterowanie plus zaczęta autonomia nie jest skończone niczym.
+
+Kolejne wersje maszyny mają to podnieść i będą budowane **z uwzględnieniem
+v1**, a nie zamiast niej. To jest właśnie powód, żeby v1 domknąć, a nie
+rozszerzać.
+
+### RSSI
+
+Na trzech metrach nie zmienia żadnej decyzji. Zacznie zmieniać przy realnym
+zasięgu albo przy antenie w metalowej obudowie — wtedy wróci jako pytanie
+otwarte, nie wcześniej.
+
+Pola `rssiFromPad` i `rssiFromPlatform` zostały **usunięte z protokołu** w v4,
+a nie zostawione puste. To ta sama reguła co wyżej: albo pole ma konsumenta,
+albo go nie ma w pliku.
+
+## Co NIE podlega tej sekcji
+
+Wersjonowanie protokołu, numery sekwencyjne, flaga ważności danych i symulatory
+w `sim/` **zostają w całości**. Zarabiają na siebie: pierwsze zatrzymało klasę
+błędów, którą Piotr realnie miał (rozjazd cJSON ↔ Swift), drugie pokazują to,
+czego na jeżdżącej platformie nie widać. To nie jest ta sama kategoria co
+szyfrowanie.
+
+Repo ma też drugie zadanie — jest **wizytówką**. Wersjonowany protokół i pad
+diagnostyczny są tu produktem, nie nadmiarem.
 
 ## Jak weryfikować zmiany
 

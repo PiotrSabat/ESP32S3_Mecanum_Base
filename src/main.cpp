@@ -22,15 +22,8 @@ static_assert(MAX_RPM_TELEMETRY == MAX_RPM * 10,
 // Most recent control frame from the pad
 static Msg_PadControl padCtrl;
 
-// Most recent remote PID command
-static Msg_SetPID receivedPidCmd;
-static volatile bool pidCmdPending = false;
-
-// Guards padCtrl and the link/telemetry counters
+// Guards padCtrl and the link state
 static SemaphoreHandle_t movementMutex;
-
-// Guards the incoming PID settings
-static SemaphoreHandle_t pidMutex;
 
 // ---- Failsafe: watching the link to the pad ----
 // Written in OnDataRecv (WiFi task, core 0), read in motorControlTask
@@ -56,21 +49,15 @@ static volatile uint8_t  padProtoVersion = 0;
 static volatile bool     padProtoOk      = false;
 static volatile uint32_t protoErrorCount = 0;   // frames of unknown type/length
 
-// ---- Pad frame loss (gaps in the seq numbering) ----
-// padSynced and padRecvCount are deliberately SEPARATE. padSynced says "we know
-// what the previous seq was"; padRecvCount is the size of the current
-// statistics window and gets cleared on every telemetry frame. Using one
-// variable for both meant that clearing the window also cleared the
-// synchronisation, so the first frame after each telemetry send was never
-// checked for a gap — at TELEMETRY_EVERY_N_PAD_FRAMES = 2 that is every second
-// transition, and reported loss came out roughly half of the truth.
-static volatile uint32_t padSeqLast   = 0;
-static volatile bool     padSynced    = false;
-static volatile uint32_t padRecvCount = 0;
-static volatile uint32_t padMissCount = 0;
-
-// Execution time of motorControlTask, in microseconds, reported in telemetry.
-static volatile float motorCtrlAvgTime = 0.0f;
+// ---- Frames rejected because of the sender (see OnDataRecv) ----
+// Without this, a wrong MAC in mac_addresses_private.h and a pad that is
+// switched off look EXACTLY the same from here: silence. The counter tells
+// the two apart — nothing arriving at all versus something arriving and being
+// thrown away — and the recorded address says what to paste into the config.
+// Written in the WiFi task, read in helloTask, deliberately without a mutex:
+// a torn read costs a garbled diagnostic line, never a wrong driving decision.
+static volatile uint32_t foreignFrameCount = 0;
+static uint8_t           lastForeignMac[6] = {0};
 
 // Motors
 static Motor frontLeftMotor(FL_CONFIG);
@@ -102,7 +89,13 @@ void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
     // every frame it transmits, so it is there for the taking. Without this
     // check a foreign device could drive the platform; and now that a
     // mismatched HELLO clears padProtoOk, it could also stop it at will.
-    if (mac == nullptr || memcmp(mac, macPadXiao, 6) != 0) return;
+    if (mac == nullptr || memcmp(mac, macPadXiao, 6) != 0) {
+        if (mac != nullptr) {
+            memcpy(lastForeignMac, mac, 6);
+            foreignFrameCount++;   // reported from helloTask, not from here
+        }
+        return;
+    }
 
     if (len < 1) return;
     const uint8_t type = incomingData[0];
@@ -115,15 +108,6 @@ void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
             // Liveness mark for the link — the only place it is refreshed
             lastPadMsgMs = millis();
             padEverSeen  = true;
-            // A gap in the numbering means frames lost on the way. The very
-            // first frame after startup only synchronises the counter. A pad
-            // restart rewinds seq, so the ">" guard keeps a negative loss out.
-            if (padSynced && padCtrl.seq > padSeqLast + 1) {
-                padMissCount += padCtrl.seq - padSeqLast - 1;
-            }
-            padSeqLast = padCtrl.seq;
-            padSynced  = true;
-            padRecvCount++;
             xSemaphoreGive(movementMutex);
         }
         // Telemetry is a REPLY, not an independent timer. It is not sent from
@@ -145,15 +129,6 @@ void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
         return;
     }
 
-    case MSG_SET_PID:
-        if (len != (int)sizeof(Msg_SetPID)) break;
-        if (xSemaphoreTake(pidMutex, portMAX_DELAY) == pdTRUE) {
-            memcpy(&receivedPidCmd, incomingData, sizeof(Msg_SetPID));
-            pidCmdPending = true;
-            xSemaphoreGive(pidMutex);
-        }
-        return;
-
     default:
         break;
     }
@@ -173,8 +148,23 @@ void helloTask(void* parameter) {
         hello.protoVersion = PROTO_VERSION;
         hello.role         = ROLE_PLATFORM;
         hello.fwBuildId    = FW_BUILD_ID;
-        hello.uptimeMs     = millis();
         esp_now_send(macPadXiao, reinterpret_cast<const uint8_t*>(&hello), sizeof(hello));
+
+        // Report frames thrown away for their sender. Reported HERE rather
+        // than in OnDataRecv because one must not print from inside the
+        // ESP-NOW callback. The rhythm fits by itself: while the pad has not
+        // been agreed with, this loop runs once a second — which is exactly
+        // when a wrong address is the thing worth suspecting.
+        static uint32_t foreignReported = 0;
+        uint32_t foreignNow = foreignFrameCount;
+        if (foreignNow != foreignReported) {
+            Serial.printf("Foreign sender: %u frame(s), last "
+                          "%02X:%02X:%02X:%02X:%02X:%02X\n",
+                          foreignNow - foreignReported,
+                          lastForeignMac[0], lastForeignMac[1], lastForeignMac[2],
+                          lastForeignMac[3], lastForeignMac[4], lastForeignMac[5]);
+            foreignReported = foreignNow;
+        }
 
         // Often while the pad has not been seen. Rarely afterwards: version
         // agreement does not change during operation, so there is no reason to
@@ -194,8 +184,6 @@ void motorControlTask(void* parameter) {
     TickType_t lastWake = xTaskGetTickCount();
 
     for (;;) {
-        uint64_t start = esp_timer_get_time();
-
         // Read the pad data and judge whether the link is alive
         if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
             x   = padCtrl.axisLX;
@@ -246,12 +234,6 @@ void motorControlTask(void* parameter) {
         // and keeps the measured speed fresh for telemetry.
         drive.update();
 
-        // Exponential moving average, not a mean since boot: a mean since boot
-        // stops reacting after a minute and quietly becomes a constant, which
-        // is worse than no number at all.
-        const uint64_t duration = esp_timer_get_time() - start;
-        motorCtrlAvgTime += ((float)duration - motorCtrlAvgTime) / 64.0f;
-
         // The period MUST be constant, hence vTaskDelayUntil rather than
         // vTaskDelay. vTaskDelay measures the pause FROM THE END OF THE WORK,
         // so the period was the requested 20 ms plus the execution time —
@@ -273,12 +255,11 @@ void telemetryTask(void* parameter) {
     uint32_t telemetrySeq = 0;
 
     for (;;) {
-        Msg_Telemetry msg = {};          // reserved fields stay zero
+        Msg_Telemetry msg = {};
         msg.msgType = MSG_TELEMETRY;
 
         if (xSemaphoreTake(movementMutex, portMAX_DELAY) == pdTRUE) {
-            msg.timestamp = millis();
-            msg.seq       = ++telemetrySeq;
+            msg.seq = ++telemetrySeq;
 
             // Axis echo — we send back what we actually read out of the frame,
             // not what it turned into after conversion to RPM.
@@ -301,20 +282,6 @@ void telemetryTask(void* parameter) {
             if (failsafeActive)      msg.flags |= TFLAG_FAILSAFE;
             if (protoErrorCount > 0) msg.flags |= TFLAG_PROTO_ERROR;
 
-            // Pad frame loss is counted over the window BETWEEN telemetry
-            // frames, not since boot — otherwise, after an hour of driving, a
-            // single lost frame would dissolve into the average and the
-            // indicator would stop saying anything.
-            uint32_t total = padRecvCount + padMissCount;
-            msg.padLossPermille = (total > 0)
-                ? (uint8_t)((padMissCount * 1000u) / total > 255u ? 255u
-                                                                  : (padMissCount * 1000u) / total)
-                : 0;
-            padRecvCount = 0;      // window only — padSynced/padSeqLast survive
-            padMissCount = 0;
-
-            msg.motorCtrlTimeUs = (uint16_t)constrain((long)motorCtrlAvgTime, 0L, 65535L);
-
             xSemaphoreGive(movementMutex);
         }
 
@@ -327,45 +294,27 @@ void telemetryTask(void* parameter) {
     }
 }
 
-// Applies PID settings received remotely (MSG_SET_PID). The sender will be
-// the pad.
-void pidCommandTask(void* parameter) {
-    Motor* wheels[4] = { &frontLeftMotor, &frontRightMotor,
-                         &rearLeftMotor,  &rearRightMotor };
-
-    for (;;) {
-        if (xSemaphoreTake(pidMutex, portMAX_DELAY) == pdTRUE) {
-            if (pidCmdPending) {
-                pidCmdPending = false;   // one command = one application
-                for (int i = 0; i < 4; i++) {
-                    if (receivedPidCmd.motorIndex == 0xFF ||
-                        receivedPidCmd.motorIndex == (uint8_t)i) {
-                        wheels[i]->setPID(receivedPidCmd.Kp,
-                                          receivedPidCmd.Ki,
-                                          receivedPidCmd.Kd);
-                    }
-                }
-                Serial.printf("PID: wheel %u  Kp=%.3f Ki=%.3f Kd=%.3f\n",
-                              (unsigned)receivedPidCmd.motorIndex,
-                              receivedPidCmd.Kp, receivedPidCmd.Ki, receivedPidCmd.Kd);
-            }
-            xSemaphoreGive(pidMutex);
-        }
-        vTaskDelay(pdMS_TO_TICKS(300));
-    }
-}
-
 void setup() {
     Serial.begin(115200);
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
 
+    // Both addresses, printed before anything can go wrong with them. The MAC
+    // is not visible on the board and mac_addresses_private.h is not in the
+    // repo, so a mistyped address used to show up only as a platform that
+    // never moves. OWN is what to paste into the pad's config; PAD is what
+    // this build believes the pad to be — all zeros means the private header
+    // is missing and the template was used.
+    Serial.printf("MAC own %s\n", WiFi.macAddress().c_str());
+    Serial.printf("MAC pad %02X:%02X:%02X:%02X:%02X:%02X\n",
+                  macPadXiao[0], macPadXiao[1], macPadXiao[2],
+                  macPadXiao[3], macPadXiao[4], macPadXiao[5]);
+
     // The mutexes MUST exist before the ESP-NOW callback is registered: the
     // WiFi task (core 0) can call OnDataRecv the instant it is registered,
     // while setup() is still running on core 1.
     movementMutex = xSemaphoreCreateMutex();
-    pidMutex      = xSemaphoreCreateMutex();
-    if (!movementMutex || !pidMutex) {
+    if (!movementMutex) {
         Serial.println("Failed to create a mutex");
         while (1) vTaskDelay(100);
     }
@@ -382,13 +331,15 @@ void setup() {
     peerPad.encrypt = false;
     esp_now_add_peer(&peerPad);
 
-    // FreeRTOS tasks. Motor control, telemetry and PID commands are pinned to
-    // core 1; HELLO sits on core 0 alongside the WiFi stack it feeds.
+    // FreeRTOS tasks. Motor control and telemetry are pinned to core 1;
+    // HELLO sits on core 0 alongside the WiFi stack it feeds.
     xTaskCreatePinnedToCore(motorControlTask, "MotorCtrlTask", 4096, nullptr, 1, nullptr, 1);
     xTaskCreatePinnedToCore(telemetryTask,    "TelemetryTask", 4096, nullptr, 1,
                             &telemetryTaskHandle, 1);
-    xTaskCreatePinnedToCore(pidCommandTask,   "PidCommand",    2048, nullptr, 1, nullptr, 1);
-    xTaskCreatePinnedToCore(helloTask,        "HelloTask",     2048, nullptr, 1, nullptr, 0);
+    // HelloTask got 3072 rather than 2048 when the foreign-sender report was
+    // added to it: Serial.printf pulls in vsnprintf, and a stack overflow here
+    // would surface as a random reset with nothing pointing back to this line.
+    xTaskCreatePinnedToCore(helloTask,        "HelloTask",     3072, nullptr, 1, nullptr, 0);
 
     Serial.println("System ready");
 }

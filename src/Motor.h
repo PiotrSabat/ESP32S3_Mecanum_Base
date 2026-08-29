@@ -86,7 +86,10 @@ public:
     /// Cuts the drive immediately (a few milliseconds).
     void hardStop();
 
-    /// Runtime PID retuning, driven remotely via MSG_SET_PID.
+    /// Runtime PID retuning. Nothing in this firmware calls it — the gains
+    /// come from motor_config.h — but it is part of the class's own API, for
+    /// anyone adding a tuning path of their own. See the note in messages.h
+    /// about the controller's dt being in MILLISECONDS.
     void setPID(float Kp, float Ki, float Kd);
     void setOutputLimits(int min, int max);
 

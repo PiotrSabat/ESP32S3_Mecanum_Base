@@ -22,7 +22,7 @@ PID loop driving PWM outputs.
 - **Four DC gearmotors with encoders**, mecanum kinematics (X, Y, rotation)
 - **PWM + direction motor drivers**, 20 kHz, 9-bit resolution
 - **Closed-loop speed control** — an independent PID per motor, retunable at runtime
-- **FreeRTOS** task architecture: motor control, telemetry, protocol, PID commands
+- **FreeRTOS** task architecture: motor control, telemetry and protocol
 - **Versioned ESP-NOW protocol** — commands one way, telemetry the other, and a
   refusal to drive if the two devices disagree about the protocol version
 - **Failsafe** — the drive is cut when the pad goes silent for longer than 300 ms
@@ -32,11 +32,13 @@ PID loop driving PWM outputs.
 
 Top speed is **measured, not assumed**: 0.28 m/s (90 RPM at the wheel).
 Rotation works out to 120 °/s from the geometry, while the stopwatch says
-138.5 °/s — a discrepancy that is documented rather than explained away, in
-[docs/drivetrain.md](docs/drivetrain.md).
+about 138 °/s across repeated runs — a discrepancy that is documented rather
+than explained away, in [docs/drivetrain.md](docs/drivetrain.md).
 
-IMU-based orientation and odometry are planned but not implemented — the fields
-are already reserved in the telemetry frame.
+There is no IMU, no current sensing and no odometry on this machine, and the
+telemetry frame carries no fields for them. Every field in
+[src/messages.h](src/messages.h) has code that reads it; anything that did not
+was removed in protocol v4 rather than left transmitting zeros.
 
 ---
 
@@ -153,6 +155,11 @@ model can be trusted.
 
 ## Roadmap
 
+**Version 1 ends with stage 5.** What is unticked below is not unfinished
+business in this firmware — it is the next machine's, and it is listed so the
+direction is visible, not as a promise. This version is meant to be a complete
+small thing rather than a partial large one.
+
 ### Stage 1 — MVP: motors and encoders
 - [x] PWM control for all four motors
 - [x] Encoder reading per wheel
@@ -186,7 +193,7 @@ model can be trusted.
 SPI to the pad was explored and dropped; ESP-NOW is the only channel.
 
 ### Stage 5 — Diagnostics on the pad
-- [x] Periodic telemetry: wheel RPM, PWM, task timing, link counters
+- [x] Telemetry as a reply to the pad's frame: wheel RPM, PWM, state flags
 - [x] Telemetry sent to the pad rather than to a separate monitor module
 - [x] System state shown on the pad screen (drive vectors, wheels, link, buttons)
 - [ ] Per-wheel current measurement — see [docs/current-sensing.md](docs/current-sensing.md)

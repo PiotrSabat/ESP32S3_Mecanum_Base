@@ -175,9 +175,12 @@ constexpr int INTERVAL_MOTOR_CONTROL = 20;   // PID loop period
 // A timer of its own meant a third unsynchronised loop at a random phase
 // relative to the pad's transmit loop, which made the round trip jump by a
 // whole period. Replying immediately gives a shorter and STABLE response time
-// with fewer frames on air — so less current and less heat. The eventual link
-// (ELRS Air Port) forces the same discipline: no frame sent just because a
-// timer expired.
+// with fewer frames on air — so less current and less heat.
+//
+// The rule this states — never send a frame just because a timer expired —
+// holds whatever ends up carrying the frames. On any shared radio channel
+// airtime is the scarce resource, and a frame repeating what the receiver
+// already knows spends it for nothing.
 constexpr uint32_t TELEMETRY_EVERY_N_PAD_FRAMES = 2;  // pad 50 Hz -> telemetry 25 Hz
 
 // Fallback rate when nothing arrives from the pad, so telemetry does not go
