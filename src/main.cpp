@@ -120,12 +120,27 @@ void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
         return;
 
     case MSG_HELLO: {
+        // Bytes 0 and 1 are frozen across every version of this protocol:
+        // message type, then protocol version. The version is read BEFORE the
+        // length check ON PURPOSE. A bump that changes the SIZE of Msg_Hello
+        // makes the two sides reject each other's HELLO on its length, and the
+        // version would then be unreadable in the one case it matters —
+        // v3 -> v4 was exactly such a bump, 12 bytes down to 8.
+        //
+        // padProtoOk is therefore set before the role check as well. That is
+        // safe because the MAC filter above has already let through nobody but
+        // the pad; do not "tidy" this by moving it back below the role test.
+        if (len >= 2) {
+            padProtoVersion = incomingData[1];
+            padProtoOk      = (incomingData[1] == PROTO_VERSION);
+        }
+        // A frame of the wrong length still falls through to protoErrorCount.
+        // "Unreadable frame" and "version mismatch" are separate states and
+        // both have to stay visible.
         if (len != (int)sizeof(Msg_Hello)) break;
         Msg_Hello hello;
         memcpy(&hello, incomingData, sizeof(hello));
         if (hello.role != ROLE_PAD) break;
-        padProtoVersion = hello.protoVersion;
-        padProtoOk      = (hello.protoVersion == PROTO_VERSION);
         return;
     }
 
