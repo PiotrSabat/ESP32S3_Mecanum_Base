@@ -25,7 +25,9 @@ PID loop driving PWM outputs.
 - **FreeRTOS** task architecture: motor control, telemetry and protocol
 - **Versioned ESP-NOW protocol** — commands one way, telemetry the other, and a
   refusal to drive if the two devices disagree about the protocol version
-- **Failsafe** — the drive is cut when the pad goes silent for longer than 300 ms
+- **Failsafe** — the drive is cut when the pad goes silent for longer than
+  300 ms. Braking is by coasting; measured on a 20 % slope, where that is enough
+  to stop the platform and hold it (see [docs/drivetrain.md](docs/drivetrain.md))
 - **Host-side simulators** that run the real `Motor.cpp` and `MecanumDrive.cpp`
   on a desktop machine, so controller behaviour and current draw can be
   inspected without a robot on the floor
@@ -103,6 +105,16 @@ These are the traps that compile cleanly and pass CI, and then do not work.
   edges, so `DEFAULT_GEAR_RATIO` is **1920**. Getting this wrong makes the robot
   travel at exactly half the speed it reports, with no other symptom anywhere in
   the code.
+- **The controller gets noisy below about 10 RPM at the wheel.** Speed is
+  measured by counting encoder edges over a fixed 20 ms window, so one count is
+  1.56 RPM and that is the hard resolution of the measurement. At 2 RPM a wheel
+  produces 1.28 counts per cycle: the reading has to alternate between 1.56 and
+  3.13, and the controller answers that step as though it were real — about 25
+  PWM units of ripple peak to peak, changing sign every other cycle. It shows up
+  as the driver's direction LED flickering at 50 Hz (the duty changes once per
+  20 ms cycle; the 20 kHz PWM itself is far too fast to see) and as ticking
+  during very slow travel. Above 10 RPM it is gone. The fix is a longer
+  measurement window at low speed, not filtering after the fact.
 - **PID gains are in millisecond units.** `computePID()` receives `dt` in
   milliseconds, so `Kd = 100` alongside `Kp = 6` is not a typo. Converting:
   `Ki_ms = Ki_s / 1000`, `Kd_ms = Kd_s × 1000`. The gains live in

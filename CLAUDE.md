@@ -305,17 +305,54 @@ decyzją Piotra. Szczegóły i limit szerokości ekranu są w `CLAUDE.md` Pada.
 
 ## Znane luki
 
+- **Przy bardzo małych obrotach wyjście regulatora przeskakuje przez zero.**
+  Prędkość liczona jest ze zliczeń w oknie 20 ms, więc **jedno zliczenie to
+  1,5625 RPM** i to jest twarda rozdzielczość pomiaru. Przy 2 RPM koło daje 1,28
+  zliczenia na cykl — pomiar **musi** skakać między 1,56 a 3,13, bo nie ma nic
+  pomiędzy. Regulator traktuje ten skok jak prawdziwą zmianę prędkości:
+  P daje `6 × 1,5625` = 9,4 jednostki PWM, D daje `100 × 1,5625 / 20` = 7,8.
+  Zmierzone na prawdziwym `Motor.cpp` przy kole kręcącym się **idealnie równo**
+  (bez tarcia, bez modelu napędu — sam pomiar): ~25 jednostek wahania
+  międzyszczytowo, zmiana znaku co drugi cykl przy 2 RPM, 15 zmian znaku przy
+  5 RPM i **zero od 10 RPM w górę**. Przy 90 RPM wahanie spada do 2 jednostek.
+
+  Objaw: dioda kierunku na sterowniku Cytron **pulsuje zamiast świecić równo**
+  (wypełnienie zmienia się co 20 ms, czyli 50 Hz — sam PWM 20 kHz jest tu bez
+  znaczenia), dioda przeciwkierunku błyska, a przy bardzo wolnej jeździe słychać
+  tykanie. Potwierdzone na sprzęcie 2026-08-29 i zgodne co do granicy prędkości.
+
+  **Nie wprowadziła tego żadna zmiana** — wynika z liczby zliczeń i długości
+  okna, które są takie od początku. Kosztuje prąd i grzeje silniki, bo przy
+  2 RPM limit momentu przeciwnego wynosi jeszcze 245 jednostek.
+
+  Naprawa u źródła to **wydłużenie okna pomiarowego przy małych obrotach**, a nie
+  filtrowanie po fakcie. Przy strojeniu pamiętać, że **P i D winne są po równo** —
+  samo obcięcie `Kd` zabierze najwyżej jedną trzecią. Symulator potrafi to
+  pokazać (atrapa enkodera kwantuje poprawnie), tylko żaden test nie pyta go
+  o małe obroty.
 - **Po Serialu piszą dwa zadania:** `motorControlTask` (rdzeń 1) i `helloTask`
   (rdzeń 0). Własna lekcja tego projektu mówi „tylko jeden task". Stan jest
   **znany i zaakceptowany w wersji 1** — nie wprowadziło go cięcie protokołu v4,
   wcześniej drugim pisarzem był `pidCommandTask`. Nie przebudowywać teraz;
   wpis istnieje po to, żeby nikt nie odkrywał tego drugi raz jako nowości.
-- **Failsafe hamuje wybiegiem, a przekładnia okazała się odwracalna.** Po ciszy
-  dłuższej niż `PAD_LINK_TIMEOUT_MS` `motorControlTask` woła `hardStop()` i
-  przestaje wołać `drive()`. Komentarz przy tym kodzie uzasadnia wybieg tym, że
-  „przekładnia 120:1 zatrzyma platformę sama" — a to założenie jest prawdziwe
-  tylko częściowo (patrz punkt o odwracalności niżej). Nie sprawdzone na
-  pochyłości; jeśli platforma odjeżdża, wybieg trzeba zastąpić `softStop()`.
+- ~~**Failsafe hamuje wybiegiem, a przekładnia jest odwracalna.**~~
+  **SPRAWDZONE NA POCHYŁOŚCI 2026-08-30 — luka zamknięta.** Piotr przejechał
+  pełny zestaw prób w ruchu: pod górę, w dół, z hamowaniem i z failsafem
+  (wyłączenie Pada w trakcie jazdy). Rampa: deska **200 cm** podniesiona
+  o **40 cm**, czyli ~20% nachylenia (~11,5°), na **białej płycie meblowej**.
+  Platforma jeździ dobrze, a po utracie łączności zatrzymuje się i zostaje.
+  Wybieg z `hardStop()` **wystarcza** — tarcie przekładni robi to, co obiecuje
+  komentarz przy tym kodzie.
+
+  Granicą okazała się **przyczepność, nie moment**: przy podniesieniu **50 cm**
+  (~26%, ~14,5°) koła ślizgają się, zanim silnik odpuści. `MAX_HOLDING_PWM = 250`
+  ma więc zapas i nie ma powodu go ruszać.
+
+  Uwaga na drugą liczbę: melamina jest wyjątkowo śliska, więc to **pomiar
+  powierzchni, nie maszyny**, i to bliski najgorszemu przypadkowi. Pierwsza
+  liczba jest tą wiarygodną, ale i ona jest związana z dzisiejszą masą —
+  cięższa wersja maszyny unieważnia wynik i test trzeba powtórzyć, patrz
+  [[kierunek-wersja-druga]].
 - `setTargetRPM()` kasuje stan `HardStopped`. Dziś to nie szkodzi, bo jedyny
   `hardStop()` (failsafe) idzie w parze z zaprzestaniem wołania `drive()`.
   Wróci jako pułapka przy przycisku E-stop — wtedy stan musi być kasowany
@@ -352,10 +389,12 @@ z uzasadnieniem jest warta więcej niż lista zrobionych.
   **Niezweryfikowane** — najpierw test w `sim/`, poprawka tylko jeśli test coś
   pokaże. `counterLimit` zależy wyłącznie od `_currentRPM`, znanego przed
   wywołaniem PID, więc dałoby się podać go jako efektywne granice cyklu.
-- **`softStop()` jest nieosiągalny w firmware.** Wołany tylko w symulatorze;
-  failsafe woła `hardStop()`. Lekarstwo na odwracalną przekładnię (punkt wyżej)
-  jest więc napisane i przetestowane, tylko niepodłączone. Nie podłączać bez
-  próby na pochyłości.
+- **`softStop()` jest nieosiągalny w firmware — i tak zostaje.** Wołany tylko
+  w symulatorze; failsafe woła `hardStop()`. Warunek „nie podłączać bez próby
+  na pochyłości" został **spełniony 2026-08-30 i wypadł na korzyść wybiegu**
+  (patrz „Znane luki"), więc podmiana byłaby wymianą działającego zabezpieczenia
+  na nieprzetestowane w locie. Kod zostaje w repo jako gotowe lekarstwo na
+  wypadek, gdyby cięższa wersja maszyny zmieniła wynik tamtej próby.
 - **Prawdziwe adresy MAC zostają w historii gita.** Commit `748f7d8` dodał
   `src/mac_adersses_private.cpp` — z literówką w nazwie, więc `.gitignore` go
   nie złapał. Plik jest usunięty w HEAD, ale historia go pamięta. Ryzyko

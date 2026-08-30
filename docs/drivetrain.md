@@ -34,6 +34,45 @@ The left–right figure is easy to get wrong: the gap between the wheels is 12 c
 but the wheels are wide, so centre to centre comes out at 15 cm. **Kinematics
 needs the distance between centres**, because that is where the force acts.
 
+## Slopes and what stops the platform
+
+Measured on 2026-08-30, driving: up, down, braking, and with the link cut
+mid-drive (the pad switched off, which puts every motor into the coasting
+`hardStop()` state).
+
+The slope was a **200 cm board with one end raised**, on white melamine-faced
+furniture board — a deliberately slippery surface, not a floor covering.
+
+| rise over 200 cm | grade | angle | behaviour |
+|---|---|---|---|
+| **40 cm** | ~20 % | ~11.5° | drives well, and stops and stays put with the link cut |
+| **50 cm** | ~26 % | ~14.5° | the **tyres** let go — the wheels slip |
+
+Two things follow, and the second one is the useful one.
+
+The failsafe's coasting stop is **enough** at this grade. `hardStop()` zeroes
+both PWM channels and leaves the motors floating, on the assumption that the
+120:1 gearbox holds the platform by friction alone. The gearbox is back-drivable
+— a wheel turns by hand with the power off — so the assumption was open to
+doubt, and this is the measurement that settled it. `softStop()` stays written,
+tested and unused; swapping it in would replace a verified behaviour with an
+unverified one.
+
+More useful: what runs out first is **grip, not torque**. The wheels slip before
+the controller gives up holding position, so `MAX_HOLDING_PWM = 250` has margin
+and there is nothing to gain by raising it.
+
+Read the second row carefully: it measures **the surface, not the robot**.
+Melamine board is about as slippery as anything found indoors, so that figure is
+close to a worst case — on carpet or concrete the wheels would hold considerably
+further. It records where traction ran out on that board, and says nothing about
+the machine's capability.
+
+The first row is the one worth trusting, and even it is tied to today's mass.
+A heavier version of the machine invalidates it and the test has to be run
+again. It takes two minutes: a board, something to prop it on, and a tape
+measure — rise over length is the grade.
+
 ## Revolutions to speed
 
     v [m/s]  = RPM × π × D / 60 = RPM × 0.0031416   (for D = 60 mm)
