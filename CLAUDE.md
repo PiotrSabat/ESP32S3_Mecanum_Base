@@ -345,8 +345,11 @@ decyzją Piotra. Szczegóły i limit szerokości ekranu są w `CLAUDE.md` Pada.
   komentarz przy tym kodzie.
 
   Granicą okazała się **przyczepność, nie moment**: przy podniesieniu **50 cm**
-  (~26%, ~14,5°) koła ślizgają się, zanim silnik odpuści. `MAX_HOLDING_PWM = 250`
-  ma więc zapas i nie ma powodu go ruszać.
+  (~26%, ~14,5°) koła ślizgają się — i to **w obu stanach sterowania**, przy
+  żywym łączu z aktywnym trzymaniem pozycji tak samo jak przy failsafie
+  z luźnymi silnikami. Skoro puszczają przy pracującym regulatorze, to oddały
+  opony, a nie silnik: `MAX_HOLDING_PWM = 250` ma zapas, a podniesienie go
+  dołożyłoby tylko poślizgu.
 
   Uwaga na drugą liczbę: melamina jest wyjątkowo śliska, więc to **pomiar
   powierzchni, nie maszyny**, i to bliski najgorszemu przypadkowi. Pierwsza
@@ -443,7 +446,7 @@ drugi XIAO) na tym samym kanale. Kosztuje jedno `memcmp` na ramkę.
 ### Nawigacja: LiDAR, mapowanie, autonomia
 
 Nie w wersji 1. Powód nie jest techniczny, tylko kolejnościowy: **v1 ma trafić
-do `public_release` jak najszybciej i możliwie dopracowana, nawet bez kompletu
+do publikacji jak najszybciej i możliwie dopracowana, nawet bez kompletu
 funkcji.** Dopracowane sterowanie czterema kołami jest rzeczą skończoną;
 sterowanie plus zaczęta autonomia nie jest skończone niczym.
 

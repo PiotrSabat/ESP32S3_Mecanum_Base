@@ -110,11 +110,15 @@ These are the traps that compile cleanly and pass CI, and then do not work.
   1.56 RPM and that is the hard resolution of the measurement. At 2 RPM a wheel
   produces 1.28 counts per cycle: the reading has to alternate between 1.56 and
   3.13, and the controller answers that step as though it were real — about 25
-  PWM units of ripple peak to peak, changing sign every other cycle. It shows up
-  as the driver's direction LED flickering at 50 Hz (the duty changes once per
-  20 ms cycle; the 20 kHz PWM itself is far too fast to see) and as ticking
-  during very slow travel. Above 10 RPM it is gone. The fix is a longer
-  measurement window at low speed, not filtering after the fact.
+  PWM units of ripple peak to peak. Two things are visible on the driver board,
+  and they are not the same thing: the **forward** LED pulses at 50 Hz because
+  the duty changes once every 20 ms cycle (the 20 kHz PWM itself is far too fast
+  to see), while the **reverse** LED flashes only when the ripple actually
+  carries the output through zero — which needs the mean duty to be small, as it
+  is at these speeds and as it especially is in the first cycles after the stick
+  moves, before the integral has built up. Audible as ticking during very slow
+  travel. Above 10 RPM it is gone. The fix is a longer measurement window at low
+  speed, not filtering after the fact.
 - **PID gains are in millisecond units.** `computePID()` receives `dt` in
   milliseconds, so `Kd = 100` alongside `Kp = 6` is not a typo. Converting:
   `Ki_ms = Ki_s / 1000`, `Kd_ms = Kd_s × 1000`. The gains live in

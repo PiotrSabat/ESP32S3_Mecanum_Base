@@ -43,10 +43,17 @@ mid-drive (the pad switched off, which puts every motor into the coasting
 The slope was a **200 cm board with one end raised**, on white melamine-faced
 furniture board — a deliberately slippery surface, not a floor covering.
 
-| rise over 200 cm | grade | angle | behaviour |
-|---|---|---|---|
-| **40 cm** | ~20 % | ~11.5° | drives well, and stops and stays put with the link cut |
-| **50 cm** | ~26 % | ~14.5° | the **tyres** let go — the wheels slip |
+Each row was tried in **both** control states, because they are not the same
+test. With the link alive and the sticks released the controller actively holds
+position — it sees the wheel start to turn and pushes back, with up to
+`MAX_HOLDING_PWM` of counter-torque. With the link cut, `hardStop()` zeroes both
+PWM channels and the motors float: nothing holds the platform but gearbox
+friction.
+
+| rise over 200 cm | grade | angle | link alive (controller holding) | link cut (motors floating) |
+|---|---|---|---|---|
+| **40 cm** | ~20 % | ~11.5° | drives up and down, holds on the stick | stops and stays put |
+| **50 cm** | ~26 % | ~14.5° | **wheels slip** | **wheels slip** |
 
 Two things follow, and the second one is the useful one.
 
@@ -58,9 +65,15 @@ doubt, and this is the measurement that settled it. `softStop()` stays written,
 tested and unused; swapping it in would replace a verified behaviour with an
 unverified one.
 
-More useful: what runs out first is **grip, not torque**. The wheels slip before
-the controller gives up holding position, so `MAX_HOLDING_PWM = 250` has margin
-and there is nothing to gain by raising it.
+More useful: what runs out first is **grip, not torque**. The right-hand pair of
+cells is what shows it — at 26 % the wheels slip *with the controller actively
+holding*, so it was the tyres that gave up and not the motor. `MAX_HOLDING_PWM =
+250` therefore has margin, and raising it would buy nothing: the extra torque
+would go straight into more slip.
+
+That the same grade defeats both control states is itself the point. Traction is
+the binding constraint here, and traction does not care what the firmware is
+doing.
 
 Read the second row carefully: it measures **the surface, not the robot**.
 Melamine board is about as slippery as anything found indoors, so that figure is
