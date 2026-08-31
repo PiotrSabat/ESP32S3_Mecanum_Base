@@ -65,11 +65,11 @@ doubt, and this is the measurement that settled it. `softStop()` stays written,
 tested and unused; swapping it in would replace a verified behaviour with an
 unverified one.
 
-More useful: what runs out first is **grip, not torque**. The right-hand pair of
-cells is what shows it — at 26 % the wheels slip *with the controller actively
-holding*, so it was the tyres that gave up and not the motor. `MAX_HOLDING_PWM =
-250` therefore has margin, and raising it would buy nothing: the extra torque
-would go straight into more slip.
+More useful: what runs out first is **grip, not torque**. The bottom row is what
+shows it — at 26 % the wheels slip *with the controller actively holding*, so it
+was the tyres that gave up and not the motor. `MAX_HOLDING_PWM = 250` therefore
+has margin, and raising it would buy nothing: the extra torque would go straight
+into more slip.
 
 That the same grade defeats both control states is itself the point. Traction is
 the binding constraint here, and traction does not care what the firmware is
