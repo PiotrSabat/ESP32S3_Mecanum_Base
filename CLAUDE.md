@@ -295,6 +295,12 @@ jest publiczne i ma trafić do ludzi spoza tego biurka. Ten plik zostaje po
 polsku, bo jest roboczy i czyta go Piotr. Nie ujednolicaj tego w żadną stronę
 bez pytania.
 
+**Opisy commitów: od 2026-08-31 po angielsku.** Decyzja Piotra — repo jest
+publiczne, więc opis po polsku pod angielskim README wygląda niespójnie, a listę
+commitów widać na GitHubie tak samo jak kod. Dotyczy obu repo. **Historii nie
+przepisujemy** — stare commity zostają po polsku i to nie jest niedoróbka do
+posprzątania.
+
 To samo dotyczy wyjścia na `Serial` z tego repo i **napisów na wyświetlaczu
 Pada** — te ostatnie były po polsku do 2026-08-29 i zostały przetłumaczone
 decyzją Piotra. Szczegóły i limit szerokości ekranu są w `CLAUDE.md` Pada.

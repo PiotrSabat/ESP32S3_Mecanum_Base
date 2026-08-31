@@ -7,6 +7,19 @@ Wheel speed is measured with incremental encoders and regulated by a per-motor
 PID loop driving PWM outputs.
 
 <p align="center">
+  <img src="assets/platform_and_pad.jpeg" alt="The platform with its pad, the pad screen showing live telemetry" width="520"/>
+  <br/>
+  <em>Both halves, with the link running: round trip 5 ms, no telemetry lost,
+  and the echo dot sitting in the middle of the stick ring.</em>
+</p>
+
+The pad is not a generic remote. It runs its own firmware from
+[Pad_Adafruit_Xiao](https://github.com/CableAndCode/Pad_Adafruit_Xiao), shares
+this repository's `src/messages.h` byte for byte, and doubles as the diagnostic
+screen for the platform — which is why there is no separate monitor device.
+The two are flashed as a pair.
+
+<p align="center">
   <img src="assets/platform_top.jpeg" alt="Top view of the mecanum platform" width="400"/>
   <br/>
   <img src="assets/platform_bottom.jpeg" alt="Bottom view of the mecanum platform" width="400"/>
