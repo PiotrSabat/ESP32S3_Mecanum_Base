@@ -107,6 +107,15 @@ Designed explicitly for in-line motor measurement: common mode **−4…+80 V** 
 **PWM common-mode rejection**. Not isolated, analogue output. More accurate than
 the Hall sensor, but it needs a shunt and a decent ADC.
 
+## What is already on the platform
+
+An **ACS712 (±20 A)** is left on the chassis from earlier experiments and is not
+connected to the microcontroller. It is a Hall sensor, so it is isolated
+and tolerates the motor lead, but the range is the wrong one for this machine:
+at 100 mV/A a 2 A wheel current occupies 200 mV of a ±2 V swing, and it then has
+to pass through a divider into the ESP32-S3's non-linear ADC. It stays a useful
+part for bench work; it is not the sensor this platform should be built around.
+
 ## Recommended order
 
 1. **One INA226 on the supply rail first.** It addresses the real problem (the

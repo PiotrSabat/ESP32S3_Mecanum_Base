@@ -37,8 +37,9 @@ Rotation works out to 120 °/s from the geometry, while the stopwatch says
 about 138 °/s across repeated runs — a discrepancy that is documented rather
 than explained away, in [docs/drivetrain.md](docs/drivetrain.md).
 
-There is no IMU, no current sensing and no odometry on this machine, and the
-telemetry frame carries no fields for them. Every field in
+The firmware reads no IMU, no current and no odometry, and the telemetry frame
+carries no fields for them. (An ACS712 is left on the chassis from earlier
+experiments, with nothing in the firmware reading it.) Every field in
 [src/messages.h](src/messages.h) has code that reads it; anything that did not
 was removed in protocol v4 rather than left transmitting zeros.
 
@@ -76,6 +77,10 @@ separate monitor device.
 | Breadboard | justPi, 830 points | 2 |
 | Battery holder, 2 × 18650 | series, EAN 5904422374341 | 1 |
 | 18650 Li-Ion cells | XTAR 18650, 2200 mAh (8.14 Wh) | 2 |
+| Step-down converter | LM2596 module with a 3-digit voltmeter — supplies the 5 V rail | 1 |
+| Power switch | IRS-101-8C/D illuminated rocker, 12 VDC / 20 A | 1 |
+| Lever wire connectors | Wago 221 style — the positive and negative distribution points | 2 |
+| Current sensor | ACS712 20 A — fitted and used in experiments, not read by this firmware | 1 |
 
 Drivetrain numbers — wheel diameter, chassis geometry, the RPM-to-speed
 conversions — are collected in [docs/drivetrain.md](docs/drivetrain.md).
@@ -83,6 +88,18 @@ conversions — are collected in [docs/drivetrain.md](docs/drivetrain.md).
 **Note on the drivers.** The MX1508 is rated 1 A per channel; measured startup
 draw is roughly 1.4–1.9 A per motor. They run at or above their rating, which is
 a known constraint rather than a surprise.
+
+**Note on the 5 V rail.** The Maker Drive has a 5 V output of its own, rated
+200 mA, which is enough to run an ESP32-S3 — but only just, since it leaves no
+margin for the current peaks of a radio transmission. The separate LM2596
+converter is there deliberately: it keeps the logic supply independent of the
+motor boards and leaves headroom for whatever the control side grows into. Its
+voltmeter also makes the cell voltage readable without connecting anything.
+
+**Note on the switch.** It breaks a DC circuit, and a rating printed for AC does
+not carry over — an arc that alternating current extinguishes at every zero
+crossing has nothing to extinguish it in DC. Hence a 20 A DC-rated switch for a
+platform that draws under 8 A: the headroom is the point, not the number.
 
 ---
 
