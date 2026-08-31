@@ -75,7 +75,7 @@ separate monitor device.
 | Mecanum chassis | Smart Robot Car Kit, EAN 500386256 | 1 |
 | Breadboard | justPi, 830 points | 2 |
 | Battery holder, 2 × 18650 | series, EAN 5904422374341 | 1 |
-| 18650 Li-Ion cells | XTAR 18650, 3500 mAh | 2 |
+| 18650 Li-Ion cells | XTAR 18650, 2200 mAh (8.14 Wh) | 2 |
 
 Drivetrain numbers — wheel diameter, chassis geometry, the RPM-to-speed
 conversions — are collected in [docs/drivetrain.md](docs/drivetrain.md).
